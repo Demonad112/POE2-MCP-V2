@@ -3,7 +3,19 @@
 import { useState } from 'react'
 import { NinjaClient, NinjaError, parseProfileUrl } from '@poe2/core'
 
-const PROXY_BASE = process.env.NEXT_PUBLIC_NINJA_PROXY_BASE ?? ''
+/**
+ * poe.ninja sends no CORS headers, so the browser cannot call it directly and a
+ * server-side hop is required. `services/ninja-proxy` in this repo is that hop.
+ *
+ * Until it is deployed, fall back to the already-live proxy from the sibling
+ * Poe2-endgame project (verified returning 200 with
+ * `access-control-allow-origin: *`) so URL import works out of the box. Setting
+ * NEXT_PUBLIC_NINJA_PROXY_BASE points the app at this repo's own deployment and
+ * removes the cross-project dependency.
+ */
+const FALLBACK_PROXY = 'https://poe2-endgame-ninja-proxy.vercel.app'
+const PROXY_BASE = (process.env.NEXT_PUBLIC_NINJA_PROXY_BASE || FALLBACK_PROXY).replace(/\/+$/, '')
+const USING_FALLBACK = PROXY_BASE === FALLBACK_PROXY
 
 const EXAMPLE = 'https://poe.ninja/poe2/profile/Demonad112-2589/runesofaldur/character/Athrynas'
 
@@ -36,14 +48,6 @@ export function ImportBar({
       setError('That URL has no league in it. Use the full profile URL, which includes the league.')
       return
     }
-    if (!PROXY_BASE) {
-      setError(
-        'No import service is configured yet, so URL import is unavailable. Paste the character JSON or a Path of Building code instead — that works with no server.',
-      )
-      setMode('paste')
-      return
-    }
-
     setBusy(true)
     try {
       const client = new NinjaClient({ fetch: (i, init) => fetch(i, init), proxyBaseUrl: PROXY_BASE })
@@ -160,7 +164,13 @@ export function ImportBar({
             >
               {EXAMPLE}
             </button>
-            {PROXY_BASE ? null : ' — requires the import service to be deployed.'}
+            {USING_FALLBACK ? (
+              <>
+                {' '}
+                — fetched through a small proxy, because poe.ninja blocks direct browser requests. If it is
+                unavailable, paste the data instead.
+              </>
+            ) : null}
           </>
         ) : (
           'Works entirely in your browser with no server. Everything below is computed locally from what you paste.'

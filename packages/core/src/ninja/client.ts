@@ -120,9 +120,15 @@ export class NinjaClient {
       if (name === 'TimeoutError' || name === 'AbortError') {
         throw new NinjaError('timeout', `Request to ${url} timed out after ${this.timeoutMs}ms.`)
       }
-      // A fetch that never yields a Response in a browser is almost always the
-      // CORS policy, not the network.
-      throw new NinjaError('cors', `Could not reach ${url}. In a browser this is poe.ninja's CORS policy; configure a proxy.`)
+      // A fetch that never yields a Response gives no status to inspect. The
+      // cause differs by mode, so don't assert one: blaming CORS when the
+      // import service is simply down sends the user to fix the wrong thing.
+      throw new NinjaError(
+        'cors',
+        this.proxyBaseUrl
+          ? 'Could not reach the import service. It may be down or unreachable from your network — pasting the character data works without it.'
+          : `Could not reach ${url}. In a browser this is poe.ninja's CORS policy, which requires a proxy; on a server it is a network failure.`,
+      )
     }
   }
 
