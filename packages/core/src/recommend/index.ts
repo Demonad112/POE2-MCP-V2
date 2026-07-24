@@ -30,6 +30,8 @@ const COST_WEIGHT: Record<Cost['kind'], number> = {
 }
 
 function score(impact: Impact | null, cost: Cost): number {
+  // Findings without a quantifiable impact rank last among actionable items —
+  // they are real, but a measured gain always outranks an unmeasured one.
   if (!impact) return 0
   const weight = COST_WEIGHT[cost.kind] * Math.max(1, cost.amount)
   return impact.significance / weight
@@ -268,15 +270,10 @@ function armourRule(ctx: Context): Recommendation[] {
       category: 'survivability',
       action: `Treat armour as a non-defence at ${d.armour.toLocaleString()} — rely on evasion, energy shield and resistances, or commit to armour properly.`,
       rationale: `${d.armour.toLocaleString()} armour reduces physical damage by only ${dr}%. Partial investment in armour is the worst of both worlds; the stat scales badly until it is large.`,
-      impact: {
-        stat: 'physicalDamageReduction',
-        label: 'Physical Damage Reduction',
-        from: dr,
-        to: 0,
-        delta: -dr,
-        unit: 'percent',
-        significance: physHit?.isLowest ? 0.5 : 0.3,
-      },
+      // No impact figure: the honest target armour value cannot be derived from
+      // this payload, and rendering the current 2% as a "gain" would read as
+      // though the advice makes the build worse.
+      impact: null,
       cost: {
         kind: 'unknown',
         amount: 1,

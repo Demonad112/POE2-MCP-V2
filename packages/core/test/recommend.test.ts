@@ -50,9 +50,13 @@ describe('reproduces the known findings', () => {
   it('flags armour as negligible mitigation', () => {
     const r = byId.get('armour-negligible')
     expect(r).toBeDefined()
-    expect(r!.impact!.from).toBe(2)
-    // The advice must be grounded in the actual armour value.
+    // No impact figure: an honest target armour value cannot be derived from
+    // the payload, and showing the current 2% as a delta would read as though
+    // the advice makes the build worse.
+    expect(r!.impact).toBeNull()
+    // The advice must still be grounded in the actual armour value.
     expect(r!.evidence.some((e) => e.kind === 'stat' && e.stat === 'armour' && e.value === 207)).toBe(true)
+    expect(r!.rationale).toContain('207')
   })
 
   it('flags the unused anoint at level 86', () => {

@@ -19,12 +19,19 @@
 import type { CharModelResponse } from '../model/types.js'
 import { normalizeAccount } from './url.js'
 
-export type FetchLike = (input: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<{
+export interface ResponseLike {
   ok: boolean
   status: number
   text(): Promise<string>
   json(): Promise<unknown>
-}>
+  /** Present on real fetch. Required to read an SSE stream without hanging. */
+  body?: ReadableStream<Uint8Array> | null
+}
+
+export type FetchLike = (
+  input: string,
+  init?: { signal?: AbortSignal; headers?: Record<string, string> },
+) => Promise<ResponseLike>
 
 export type NinjaErrorReason = 'not-found' | 'network' | 'cors' | 'bad-response' | 'timeout'
 
@@ -57,6 +64,40 @@ export interface NinjaClientOptions {
 const DEFAULT_BASE = 'https://poe.ninja'
 const DEFAULT_TIMEOUT = 20_000
 
+/** Extract the payload of the first `data:` line, or null if the stream ends. */
+function firstDataLine(buffer: string): string | null {
+  const line = buffer.split('\n').find((l) => l.startsWith('data:'))
+  return line ? line.slice(5).trim() : null
+}
+
+/**
+ * Read a never-closing SSE stream just far enough to get its first data frame,
+ * then cancel it. Cancelling matters: leaving the reader open holds the socket
+ * for the life of the process.
+ */
+async function readFirstDataFrame(body: ReadableStream<Uint8Array>): Promise<string | null> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return firstDataLine(buffer)
+      buffer += decoder.decode(value, { stream: true })
+      const frame = firstDataLine(buffer)
+      // Only accept a frame once it is complete — it may be split across chunks.
+      if (frame !== null && buffer.includes('\n')) return frame
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+/** Fallback for fetch implementations that expose no body stream (test doubles). */
+async function readFirstDataFrameFromText(res: ResponseLike): Promise<string | null> {
+  return firstDataLine(await res.text())
+}
+
 export class NinjaClient {
   private readonly fetch: FetchLike
   private readonly baseUrl: string
@@ -70,7 +111,7 @@ export class NinjaClient {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT
   }
 
-  private async get(url: string): Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<unknown> }> {
+  private async get(url: string): Promise<ResponseLike> {
     const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined
     try {
       return await this.fetch(url, signal ? { signal } : {})
@@ -88,34 +129,29 @@ export class NinjaClient {
   /**
    * Read the `version` number from an SSE endpoint.
    *
-   * The stream stays open indefinitely, so we read only what we need: the
-   * first `data:` line carries the version and nothing after it matters.
+   * CRITICAL: this stream never closes on its own — poe.ninja holds it open and
+   * emits keep-alive frames indefinitely. Awaiting the whole body (`res.text()`)
+   * therefore hangs until the request times out. Read incrementally instead and
+   * stop the moment the first `data:` frame arrives.
    */
   private async readVersion(url: string): Promise<number> {
     const res = await this.get(url)
     if (res.status === 404) throw new NinjaError('not-found', 'poe.ninja has no record of that account or character.')
     if (!res.ok) throw new NinjaError('bad-response', `poe.ninja returned ${res.status} for the version stream.`)
 
-    let body: string
+    const frame = res.body ? await readFirstDataFrame(res.body) : await readFirstDataFrameFromText(res)
+    if (frame === null) throw new NinjaError('bad-response', 'The version stream carried no data frame.')
+
+    let parsed: { version?: unknown }
     try {
-      body = await res.text()
+      parsed = JSON.parse(frame) as { version?: unknown }
     } catch {
-      throw new NinjaError('bad-response', 'The version stream ended before a version arrived.')
-    }
-
-    const line = body.split('\n').find((l) => l.startsWith('data:'))
-    if (!line) throw new NinjaError('bad-response', 'The version stream carried no data frame.')
-
-    try {
-      const parsed = JSON.parse(line.slice(5).trim()) as { version?: unknown }
-      if (typeof parsed.version !== 'number') {
-        throw new NinjaError('not-found', 'poe.ninja returned no version — the profile may be private or unindexed.')
-      }
-      return parsed.version
-    } catch (err) {
-      if (err instanceof NinjaError) throw err
       throw new NinjaError('bad-response', 'The version frame was not valid JSON.')
     }
+    if (typeof parsed.version !== 'number') {
+      throw new NinjaError('not-found', 'poe.ninja returned no version — the profile may be private or unindexed.')
+    }
+    return parsed.version
   }
 
   /** List an account's characters. Server-side only (no proxy route for this). */
