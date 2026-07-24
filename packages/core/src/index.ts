@@ -19,4 +19,6 @@ export * from './reconcile/index.js'
 export * from './ninja/url.js'
 export * from './ninja/client.js'
 
+export * from './tree/index.js'
+
 export * from './analyze.js'
