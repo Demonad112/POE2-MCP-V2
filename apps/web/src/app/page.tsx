@@ -9,6 +9,7 @@ import { ImportBar, type ImportResult } from '@/components/ImportBar'
 import { Reconciliation } from '@/components/Reconciliation'
 import { Recommendations } from '@/components/Recommendations'
 import { Skeleton } from '@/components/Skeleton'
+import { TreePanel } from '@/components/tree/TreePanel'
 import { Tag } from '@/components/ui'
 
 export default function Home() {
@@ -90,6 +91,8 @@ export default function Home() {
             </div>
 
             <DpsMatrix dps={analysis.dps} />
+
+            <TreePanel allocation={analysis.passives} />
 
             {analysis.reconciliation ? <Reconciliation report={analysis.reconciliation} /> : null}
           </div>
