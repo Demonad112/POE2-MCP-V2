@@ -5,17 +5,19 @@ import { NinjaClient, NinjaError, parseProfileUrl } from '@poe2/core'
 
 /**
  * poe.ninja sends no CORS headers, so the browser cannot call it directly and a
- * server-side hop is required. `services/ninja-proxy` in this repo is that hop.
+ * server-side hop is required. `services/ninja-proxy` in this repo is that hop,
+ * deployed at the URL below.
  *
- * Until it is deployed, fall back to the already-live proxy from the sibling
- * Poe2-endgame project (verified returning 200 with
- * `access-control-allow-origin: *`) so URL import works out of the box. Setting
- * NEXT_PUBLIC_NINJA_PROXY_BASE points the app at this repo's own deployment and
- * removes the cross-project dependency.
+ * Use the bare production alias, NOT the team-scoped one
+ * (`*-obsidian-intelligenceyyc.vercel.app`): team aliases sit behind Vercel's
+ * SSO and answer 302 to anonymous requests, so the app would silently fail to
+ * import. Verified 2026-07-24: this alias returns 200 with
+ * `access-control-allow-origin: *`.
+ *
+ * NEXT_PUBLIC_NINJA_PROXY_BASE overrides it if the proxy ever moves.
  */
-const FALLBACK_PROXY = 'https://poe2-endgame-ninja-proxy.vercel.app'
-const PROXY_BASE = (process.env.NEXT_PUBLIC_NINJA_PROXY_BASE || FALLBACK_PROXY).replace(/\/+$/, '')
-const USING_FALLBACK = PROXY_BASE === FALLBACK_PROXY
+const DEFAULT_PROXY = 'https://poe2-ninja-proxy.vercel.app'
+const PROXY_BASE = (process.env.NEXT_PUBLIC_NINJA_PROXY_BASE || DEFAULT_PROXY).replace(/\/+$/, '')
 
 const EXAMPLE = 'https://poe.ninja/poe2/profile/Demonad112-2589/runesofaldur/character/Athrynas'
 
@@ -164,13 +166,9 @@ export function ImportBar({
             >
               {EXAMPLE}
             </button>
-            {USING_FALLBACK ? (
-              <>
-                {' '}
-                — fetched through a small proxy, because poe.ninja blocks direct browser requests. If it is
-                unavailable, paste the data instead.
-              </>
-            ) : null}
+            {' '}
+            — fetched through a small proxy, because poe.ninja blocks direct browser requests. If it is unavailable,
+            paste the data instead.
           </>
         ) : (
           'Works entirely in your browser with no server. Everything below is computed locally from what you paste.'

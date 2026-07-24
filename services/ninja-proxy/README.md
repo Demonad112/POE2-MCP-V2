@@ -39,10 +39,27 @@ GET /api/character?account=Name-1234&league=runesofaldur&character=Athrynas
 
 All data is public. No authentication, no secrets, nothing persisted.
 
-## Deploying
+## Deployed at
 
-**This is the one step that requires a human.** Deploy it anywhere that runs a
-JS function, then point the web app at it.
+**https://poe2-ninja-proxy.vercel.app** — this is the app's default.
+
+Use the bare production alias. The team-scoped alias
+(`poe2-ninja-proxy-obsidian-intelligenceyyc.vercel.app`) sits behind Vercel SSO
+and answers `302` to anonymous requests, so the app would silently fail to
+import through it. Same trap applies to preview deployment URLs — only the
+production alias is public.
+
+```
+$ curl -sI -H "Origin: https://demonad112.github.io" \
+    "https://poe2-ninja-proxy.vercel.app/api/character?account=Demonad112-2589&league=runesofaldur&character=Athrynas"
+HTTP/2 200
+access-control-allow-origin: *
+content-type: application/json; charset=utf-8   # 407 KB charModel
+```
+
+## Redeploying
+
+Deploy it anywhere that runs a JS function, then point the web app at it.
 
 ### Vercel
 
