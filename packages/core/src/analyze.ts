@@ -1,0 +1,99 @@
+/**
+ * The single analysis entry point.
+ *
+ * Both `apps/mcp` and `apps/web` call this and render the result. Neither
+ * contains analysis logic of its own — that was V1's fatal structural flaw,
+ * where a vendored copy of the analyser meant the web app and the MCP server
+ * could only agree by coincidence.
+ */
+
+import { analyzeDefense, type DefenseSummary } from './defense/index.js'
+import { analyzeDps, type DpsSummary } from './dps/index.js'
+import { indexBreakdowns, type BreakdownIndex } from './model/breakdowns.js'
+import { normalizePassives, type PassiveAllocation } from './model/passives.js'
+import { normalizeItems, type EquippedItem } from './model/slots.js'
+import { recommend } from './recommend/index.js'
+import type { RecommendationReport } from './recommend/types.js'
+import { reconcile, type ReconciliationReport } from './reconcile/index.js'
+import { decodePobExport, readPlayerStats } from './pob/export.js'
+import type { CharModel, CharModelResponse } from './model/types.js'
+
+export interface CharacterIdentity {
+  name: string
+  account: string
+  league: string
+  level: number | null
+  /** Ascendancy, e.g. "Deadeye". */
+  className: string | null
+  updatedUtc: string | null
+}
+
+export interface Analysis {
+  identity: CharacterIdentity
+  defense: DefenseSummary
+  dps: DpsSummary
+  passives: PassiveAllocation
+  items: EquippedItem[]
+  breakdowns: BreakdownIndex
+  recommendations: RecommendationReport
+  /** Present when a PoB export was attached and decoded. */
+  reconciliation: ReconciliationReport | null
+  /** PoB's own computed stats, when available — an independent second opinion. */
+  pobStats: Record<string, number> | null
+  /** Non-fatal problems worth telling the user about. */
+  warnings: string[]
+}
+
+/** Accept either the raw `{type, charModel}` envelope or a bare charModel. */
+export function unwrapCharModel(input: CharModelResponse | CharModel | unknown): CharModel {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Expected a poe.ninja character model object.')
+  }
+  const maybe = input as CharModelResponse
+  if (maybe.charModel && typeof maybe.charModel === 'object') return maybe.charModel
+  return input as CharModel
+}
+
+export async function analyzeCharacter(input: CharModelResponse | CharModel | unknown): Promise<Analysis> {
+  const model = unwrapCharModel(input)
+  const warnings: string[] = []
+
+  let pobStats: Record<string, number> | null = null
+  if (model.pathOfBuildingExport) {
+    try {
+      pobStats = readPlayerStats(await decodePobExport(model.pathOfBuildingExport))
+    } catch (err) {
+      warnings.push(
+        `The attached Path of Building export could not be decoded (${(err as Error).message}), so poe.ninja's numbers could not be cross-checked.`,
+      )
+    }
+  }
+
+  const analysis: Analysis = {
+    identity: {
+      name: model.name ?? '',
+      account: model.account ?? '',
+      league: model.league ?? '',
+      level: typeof model.level === 'number' ? model.level : null,
+      className: model.class ?? null,
+      updatedUtc: model.updatedUtc ?? null,
+    },
+    defense: analyzeDefense(model),
+    dps: analyzeDps(model),
+    passives: normalizePassives(model),
+    items: normalizeItems(model),
+    breakdowns: indexBreakdowns(model),
+    recommendations: recommend(model),
+    reconciliation: pobStats ? reconcile(model, pobStats) : null,
+    pobStats,
+    warnings,
+  }
+
+  if (analysis.reconciliation && analysis.reconciliation.major > 0) {
+    warnings.push(
+      `${analysis.reconciliation.major} stat${analysis.reconciliation.major === 1 ? '' : 's'} disagree between poe.ninja and the attached Path of Building export. See the reconciliation report before trusting those figures.`,
+    )
+  }
+
+  return analysis
+}
