@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "npm run sync-data",
+    "predev": "npm run build -w @poe2/core && npm run sync-data",
     "dev": "next dev",
-    "prebuild": "npm run sync-data",
+    "//prebuild": "The core is consumed as built output, so it must exist before Next resolves @poe2/core. Building it here keeps `npm run build -w @poe2/web` working standalone.",
+    "prebuild": "npm run build -w @poe2/core && npm run sync-data",
     "build": "next build",
     "sync-data": "node -e \"require('fs').copyFileSync('../../packages/data/generated/passive-tree.json','public/passive-tree.json')\"",
     "start": "next start",
