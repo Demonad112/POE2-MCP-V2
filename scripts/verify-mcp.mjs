@@ -1,0 +1,196 @@
+/**
+ * Drive the built MCP server over stdio with real protocol messages.
+ *
+ * Spawns the actual binary an MCP client would spawn, completes the initialize
+ * handshake, lists tools, and calls a representative set against the real
+ * committed character — asserting the values that come back are the real ones.
+ *
+ * Uses the fixture via poe2_load_character's `json` parameter so it needs no
+ * network and stays deterministic.
+ *
+ * Usage: node scripts/verify-mcp.mjs
+ */
+
+import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+
+const fixture = readFileSync('packages/core/test/fixtures/athrynas-v43.json', 'utf8')
+const failures = []
+
+const child = spawn('node', ['apps/mcp/dist/index.js'], { stdio: ['pipe', 'pipe', 'pipe'] })
+child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`))
+
+let buffer = ''
+const pending = new Map()
+child.stdout.on('data', (chunk) => {
+  buffer += chunk.toString()
+  let index
+  while ((index = buffer.indexOf('\n')) !== -1) {
+    const line = buffer.slice(0, index).trim()
+    buffer = buffer.slice(index + 1)
+    if (!line) continue
+    let message
+    try {
+      message = JSON.parse(line)
+    } catch {
+      failures.push(`server emitted non-JSON on stdout, which corrupts the protocol stream: ${line.slice(0, 120)}`)
+      continue
+    }
+    const resolve = pending.get(message.id)
+    if (resolve) {
+      pending.delete(message.id)
+      resolve(message)
+    }
+  }
+})
+
+let nextId = 1
+function send(method, params) {
+  const id = nextId++
+  const promise = new Promise((resolve, reject) => {
+    pending.set(id, resolve)
+    setTimeout(() => reject(new Error(`timed out waiting for ${method}`)), 30_000)
+  })
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+  return promise
+}
+
+/** Call a tool and parse the JSON payload it returns. */
+async function callTool(name, args = {}) {
+  const response = await send('tools/call', { name, arguments: args })
+  const text = response.result?.content?.[0]?.text ?? ''
+  if (response.result?.isError) return { error: text }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { raw: text }
+  }
+}
+
+// --- handshake --------------------------------------------------------------
+const init = await send('initialize', {
+  protocolVersion: '2024-11-05',
+  capabilities: {},
+  clientInfo: { name: 'verify-mcp', version: '1.0.0' },
+})
+if (init.result?.serverInfo?.name !== 'poe2-build-analyzer') {
+  failures.push(`unexpected server identity: ${JSON.stringify(init.result?.serverInfo)}`)
+}
+child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+console.log(`handshake: ${init.result?.serverInfo?.name} v${init.result?.serverInfo?.version}`)
+
+// --- tool listing -----------------------------------------------------------
+const list = await send('tools/list', {})
+const tools = list.result?.tools ?? []
+console.log(`tools/list: ${tools.length} tools`)
+if (tools.length < 14) failures.push(`expected at least 14 tools, got ${tools.length}`)
+for (const tool of tools) {
+  if (!tool.description || tool.description.length < 40) failures.push(`${tool.name} has a thin description`)
+  if (!tool.name.startsWith('poe2_')) failures.push(`${tool.name} is missing the poe2_ prefix`)
+}
+
+// --- operating before a character is loaded ---------------------------------
+const early = await callTool('poe2_get_defenses')
+if (!early.error?.includes('poe2_load_character')) {
+  failures.push(`calling a tool with no character loaded should name the fix; got: ${JSON.stringify(early).slice(0, 160)}`)
+} else {
+  console.log('no-character error: names the tool to call')
+}
+
+// --- load the real character ------------------------------------------------
+const loaded = await callTool('poe2_load_character', { json: fixture })
+if (loaded.identity?.name !== 'Athrynas' || loaded.identity?.level !== 86) {
+  failures.push(`load returned wrong identity: ${JSON.stringify(loaded.identity)}`)
+} else {
+  console.log(`load: ${loaded.identity.name} level ${loaded.identity.level} ${loaded.identity.className}`)
+}
+
+// --- defences ---------------------------------------------------------------
+const defenses = await callTool('poe2_get_defenses')
+if (defenses.lowestMaximumHit !== 3808 || defenses.lowestMaximumHitType !== 'chaos') {
+  failures.push(`defences wrong: ${JSON.stringify({ h: defenses.lowestMaximumHit, t: defenses.lowestMaximumHitType })}`)
+}
+if (!defenses.note?.includes('overstates')) failures.push('defences did not warn that EHP overstates survivability')
+console.log(`defenses: lowest max hit ${defenses.lowestMaximumHit} (${defenses.lowestMaximumHitType})`)
+
+// --- damage -----------------------------------------------------------------
+const damage = await callTool('poe2_get_skill_damage')
+if (damage.primary?.name !== 'Ice Shot' || damage.primary?.dps !== 109859) {
+  failures.push(`damage wrong: ${JSON.stringify(damage.primary)}`)
+}
+console.log(`damage: ${damage.primary?.name} ${damage.primary?.dps}`)
+
+// --- attribution ------------------------------------------------------------
+const armour = await callTool('poe2_find_stat_sources', { stat: 'armour' })
+if (armour.total !== 207 || armour.sources?.length !== 3) {
+  failures.push(`armour attribution wrong: ${JSON.stringify(armour).slice(0, 200)}`)
+}
+if (!armour.sources?.some((s) => s.from === 'Golem Tether')) {
+  failures.push('armour attribution did not name the real item granting it')
+}
+console.log(`stat sources: armour ${armour.total} from ${armour.sources?.length} sources incl. ${armour.sources?.[0]?.from}`)
+
+// An unknown stat must list the real options rather than return nothing.
+const bogus = await callTool('poe2_find_stat_sources', { stat: 'notAStat' })
+if (!bogus.error?.includes('Available stats')) failures.push('unknown stat did not list available stats')
+
+// --- passive tree -----------------------------------------------------------
+const tree = await callTool('poe2_analyze_passive_tree')
+if (tree.counts?.allocatedMainSelection !== 103 || tree.counts?.reportedByNinja?.passives !== 109) {
+  failures.push(`tree counts wrong: ${JSON.stringify(tree.counts)}`)
+}
+if (tree.groups?.length !== 3) failures.push(`expected 3 allocation groups, got ${tree.groups?.length}`)
+console.log(`tree: ${tree.counts?.liveTotal} live nodes, ${tree.groups?.length} groups, ${tree.notables?.length} notables`)
+
+// --- support gems -----------------------------------------------------------
+const gems = await callTool('poe2_validate_support_gems')
+const illegal = (gems.setups ?? []).flatMap((s) => s.issues.filter((i) => i.illegal))
+if (illegal.length) failures.push(`real character reported illegal setups: ${JSON.stringify(illegal).slice(0, 200)}`)
+console.log(`support gems: ${gems.setups?.length} setups validated, ${illegal.length} illegal`)
+
+// A genuinely illegal combination must be caught.
+const dup = await callTool('poe2_validate_support_gems', {
+  skill: 'Ice Shot',
+  supports: ['Rapid Attacks II', 'Rapid Attacks I'],
+})
+if (!dup.issues?.some((i) => i.kind === 'duplicate-category' && i.illegal)) {
+  failures.push(`duplicate category not caught: ${JSON.stringify(dup).slice(0, 250)}`)
+} else {
+  console.log('support gems: duplicate category correctly rejected')
+}
+
+// --- cross-validation -------------------------------------------------------
+const cross = await callTool('poe2_cross_validate')
+if (!cross.available || cross.summary?.major !== 0) {
+  failures.push(`cross-validation unexpected: ${JSON.stringify(cross.summary)}`)
+}
+console.log(`cross-validate: ${cross.summary?.agree} agree, ${cross.summary?.major} major disagreements`)
+
+// --- recommendations --------------------------------------------------------
+const recs = await callTool('poe2_get_recommendations')
+const ids = (recs.recommendations ?? []).map((r) => r.id)
+for (const expected of ['res-cold-under-cap', 'one-shot-chaos', 'anoint-unused', 'weapon-ilvl-lag']) {
+  if (!ids.includes(expected)) failures.push(`recommendations missing ${expected}`)
+}
+console.log(`recommendations: ${ids.length} findings — ${ids.slice(0, 3).join(', ')}…`)
+
+// --- mechanics --------------------------------------------------------------
+const mech = await callTool('poe2_explain_mechanic', { query: 'armour' })
+if (!mech.matches?.[0]?.basis) failures.push('mechanic entry lacks a stated basis')
+console.log(`mechanics: "${mech.matches?.[0]?.title}"`)
+
+// --- health -----------------------------------------------------------------
+const health = await callTool('poe2_health_check')
+if (health.passiveTree?.nodes !== 4975 || !health.character?.loaded) {
+  failures.push(`health check wrong: ${JSON.stringify(health).slice(0, 200)}`)
+}
+console.log(`health: ${health.toolCount} tools, ${health.passiveTree?.nodes} tree nodes, character loaded`)
+
+child.kill()
+
+if (failures.length) {
+  console.error('\nFAILURES:')
+  for (const f of failures) console.error(`  - ${f}`)
+  process.exit(1)
+}
+console.log('\nMCP server verified over stdio.')
