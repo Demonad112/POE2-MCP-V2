@@ -263,29 +263,62 @@ describe('tier upgrades', () => {
 describe('content headroom', () => {
   const monsters = JSON.parse(readFileSync(join(dataDir, 'monster-stats.json'), 'utf8')) as MonsterStatData
 
-  it('reports headroom against base monster damage per area level', () => {
+  it('maps waystone tier to area level as 64 + tier', () => {
+    // Derived from the waystone item bases, corroborated by WorldAreas. T1 is
+    // the one whose DROP level differs — it drops in the campaign at 58.
+    expect(monsters.tiers).toHaveLength(16)
+    for (const t of monsters.tiers) expect(t.areaLevel).toBe(64 + t.tier)
+    expect(monsters.tiers[0]).toMatchObject({ tier: 1, areaLevel: 65, dropLevel: 58, dropLevelMatches: false })
+    expect(monsters.tiers.at(-1)).toMatchObject({ tier: 16, areaLevel: 80, dropLevel: 80, dropLevelMatches: true })
+    // Every other tier's drop level agrees exactly.
+    expect(monsters.tiers.filter((t) => !t.dropLevelMatches)).toHaveLength(1)
+  })
+
+  it('reports headroom per tier against real monster damage', () => {
     const report = analyzeContent(analysis.defense, monsters)
     expect(report.lowestMaximumHit).toBe(3808)
     expect(report.lowestMaximumHitType).toBe('chaos')
+    expect(report.tiers).toHaveLength(16)
 
-    const at80 = report.rows.find((r) => r.areaLevel === 80)!
-    expect(at80.baseMonsterHit).toBe(334)
-    expect(at80.headroom).toBeCloseTo(3808 / 334, 1)
-    expect(at80.maps.length).toBeGreaterThan(0)
+    const t16 = report.tiers.find((t) => t.tier === 16)!
+    expect(t16.areaLevel).toBe(80)
+    expect(t16.baseMonsterHit).toBe(334)
+    expect(t16.headroom).toBeCloseTo(3808 / 334, 1)
+
+    // Headroom must fall monotonically as tiers rise — monster damage only goes up.
+    for (let i = 1; i < report.tiers.length; i++) {
+      expect(report.tiers[i]!.headroom).toBeLessThanOrEqual(report.tiers[i - 1]!.headroom)
+    }
   })
 
-  it('refuses to name a map tier, and says why', () => {
+  it('reports boss levels from Path of Building configuration', () => {
     const report = analyzeContent(analysis.defense, monsters)
-    // No map tier data exists in any source. Inventing the mapping is the one
-    // thing this must not do.
-    expect(report.unresolved.some((u) => /map tier/i.test(u.question))).toBe(true)
-    expect(JSON.stringify(report.rows)).not.toMatch(/tier/i)
+    const pinnacle = report.bosses.find((b) => /pinnacle/i.test(b.label))!
+    const cap = report.bosses.find((b) => /highest/i.test(b.label))!
+
+    expect(pinnacle.level).toBe(82)
+    expect(cap.level).toBe(85)
+    // Above the top waystone, so strictly less headroom than tier 16.
+    const t16 = report.tiers.find((t) => t.tier === 16)!
+    expect(cap.headroom).toBeLessThan(t16.headroom)
   })
 
-  it('always carries the caveats, so the number is never read bare', () => {
+  it('states its comfort thresholds rather than hiding them', () => {
     const report = analyzeContent(analysis.defense, monsters)
-    expect(report.caveats.length).toBeGreaterThanOrEqual(3)
-    expect(report.caveats.join(' ')).toContain('BASE monster')
+    expect(report.caveats.join(' ')).toMatch(/this project.s judgement, not a game constant/)
+    for (const row of report.tiers) {
+      if (row.headroom >= 12) expect(row.comfort).toBe('comfortable')
+      else if (row.headroom < 6) expect(row.comfort).toBe('dangerous')
+      else expect(row.comfort).toBe('thin')
+    }
+  })
+
+  it('never presents the base figure as a safety verdict', () => {
+    const report = analyzeContent(analysis.defense, monsters)
+    expect(report.caveats[0]).toContain('upper bound, not a safety verdict')
+    expect(report.summary).toMatch(/BASE monsters|Survivability is the constraint/)
+    // Rare and unique multipliers genuinely are not in the data.
+    expect(report.unresolved.some((u) => /rare, unique or map modifier/i.test(u.question))).toBe(true)
   })
 })
 

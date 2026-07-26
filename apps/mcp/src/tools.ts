@@ -774,13 +774,14 @@ export const TOOLS: ToolDef[] = [
 
   {
     name: 'poe2_survivability_headroom',
-    title: 'Survivability against area level',
+    title: 'Survivability by map tier and against bosses',
     description:
-      'How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed ' +
-      'as a headroom multiple. Deliberately does NOT name a map tier: no map tier data exists in any source used ' +
-      'here, and mapping area level to tier would be invented rather than derived. The figure is against a BASE ' +
-      'monster — rares, uniques and map modifiers hit considerably harder — and the caveats are returned alongside it ' +
-      'so the number is never read bare.',
+      'How the character’s smallest fatal hit compares to base monster damage at every waystone tier (1-16) and at ' +
+      'the boss levels Path of Building itself uses — 82, the pinnacle boss floor, and 85, the ceiling for all ' +
+      'enemies. Tier maps to area level as 64 + tier, taken from the waystone item bases. Reports the highest tier ' +
+      'that is comfortable and the first that is not. The figure is against a BASE monster: rares, uniques and map ' +
+      'modifiers hit considerably harder and are not modelled, so it is an upper bound rather than a safety verdict, ' +
+      'and the caveats are returned alongside it so the number is never read bare.',
     inputSchema: {},
     annotations: READ_ONLY,
     handler: () => analyzeContent(requireCharacter().analysis.defense, monsterStats()),

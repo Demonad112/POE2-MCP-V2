@@ -1,13 +1,12 @@
 'use client'
 
 /**
- * Survivability against area level.
+ * Survivability against waystone tier and against bosses.
  *
- * The headline number this deliberately does NOT show is a map tier. No map tier
- * data exists in any source this project uses — WorldAreas carries area levels
- * for 158 maps and no tier field at all — so "you can run T12" would be invented.
- * The panel says so in the same breath as it shows what it does know, rather than
- * quietly omitting the question the reader actually has.
+ * The tier→area level mapping is real (64 + tier, from the waystone item bases)
+ * and so is the base monster damage. What is NOT modelled is rare, unique and
+ * map-modifier damage, which is what actually kills characters — so the caveat
+ * sits next to the number rather than below the fold.
  */
 
 import { useEffect, useState } from 'react'
@@ -15,6 +14,12 @@ import { analyzeContent, type DefenseSummary, type MonsterStatData } from '@poe2
 import { Empty, Panel } from './ui'
 
 const DATA_URL = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/monster-stats.json`
+
+const COMFORT: Record<string, { bar: string; text: string; label: string }> = {
+  comfortable: { bar: 'bg-good/70', text: 'text-good', label: 'comfortable' },
+  thin: { bar: 'bg-warn/70', text: 'text-warn', label: 'thin' },
+  dangerous: { bar: 'bg-danger/70', text: 'text-danger', label: 'dangerous' },
+}
 
 export function Headroom({ defense }: { defense: DefenseSummary }) {
   const [data, setData] = useState<MonsterStatData | null>(null)
@@ -36,51 +41,82 @@ export function Headroom({ defense }: { defense: DefenseSummary }) {
 
   if (error) {
     return (
-      <Panel title="Survivability by area level">
+      <Panel title="Survivability by map tier">
         <Empty>Could not load the monster data ({error}).</Empty>
       </Panel>
     )
   }
   if (!data) {
     return (
-      <Panel title="Survivability by area level">
+      <Panel title="Survivability by map tier">
         <div className="h-20 animate-pulse rounded-lg bg-surface-sunken" />
       </Panel>
     )
   }
 
   const report = analyzeContent(defense, data)
-  const max = Math.max(...report.rows.map((r) => r.headroom), 1)
+  const max = Math.max(...report.tiers.map((t) => t.headroom), 1)
 
   return (
     <Panel
-      title="Survivability by area level"
+      title="Survivability by map tier"
       subtitle={
         <>
-          Your smallest fatal hit is{' '}
-          <span className="tabular font-semibold text-ink">{report.lowestMaximumHit.toLocaleString()}</span>{' '}
-          {report.lowestMaximumHitType} damage, against base monster damage at each level.
+          A {report.lowestMaximumHitType} hit of{' '}
+          <span className="tabular font-semibold text-ink">{report.lowestMaximumHit.toLocaleString()}</span> kills you.
+          Waystone tier {report.tiers[0]?.tier}–{report.tiers.at(-1)?.tier} opens area level{' '}
+          {report.tiers[0]?.areaLevel}–{report.tiers.at(-1)?.areaLevel}.
         </>
       }
     >
-      <ul className="space-y-1.5">
-        {report.rows.map((row) => (
-          <li key={row.areaLevel} className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2">
-            <span className="tabular text-[11px] text-ink-dim">area {row.areaLevel}</span>
-            <span className="relative h-4 overflow-hidden rounded bg-surface-sunken">
-              <span
-                className="absolute inset-y-0 left-0 rounded bg-accent/70"
-                style={{ width: `${(row.headroom / max) * 100}%` }}
-              />
-              {row.maps.length ? (
-                <span className="absolute inset-y-0 left-1.5 flex items-center truncate text-[10px] text-ink-mute">
-                  {row.maps.slice(0, 2).join(', ')}
+      <p className="mb-3 rounded-lg bg-surface-sunken px-3 py-2 text-xs leading-relaxed text-ink-dim">
+        {report.summary}
+      </p>
+
+      <ul className="space-y-1">
+        {report.tiers.map((row) => {
+          const tone = COMFORT[row.comfort]!
+          return (
+            <li key={row.tier} className="grid grid-cols-[2.5rem_1fr_3.5rem] items-center gap-2">
+              <span className="tabular text-[11px] text-ink-dim">
+                T{row.tier}
+                <span className="ml-1 text-ink-mute">·{row.areaLevel}</span>
+              </span>
+              <span className="relative h-4 overflow-hidden rounded bg-surface-sunken">
+                <span
+                  className={`absolute inset-y-0 left-0 rounded ${tone.bar}`}
+                  style={{ width: `${(row.headroom / max) * 100}%` }}
+                />
+                {row.maps.length ? (
+                  <span className="absolute inset-y-0 left-1.5 flex items-center truncate text-[10px] text-ink-mute">
+                    {row.maps.slice(0, 2).join(', ')}
+                  </span>
+                ) : null}
+              </span>
+              <span className={`tabular text-right text-[11px] font-semibold ${tone.text}`}>{row.headroom}×</span>
+            </li>
+          )
+        })}
+      </ul>
+
+      <h3 className="mt-4 mb-1.5 text-[11px] font-medium tracking-wide text-ink-dim uppercase">Bosses</h3>
+      <ul className="space-y-1">
+        {report.bosses.map((boss) => {
+          const tone = COMFORT[boss.comfort]!
+          return (
+            <li key={boss.label} className="rounded-md bg-surface-sunken px-3 py-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span className="text-xs font-medium text-ink">
+                  {boss.label} <span className="text-ink-mute">· level {boss.level}</span>
                 </span>
-              ) : null}
-            </span>
-            <span className="tabular text-right text-[11px] font-semibold text-ink">{row.headroom}×</span>
-          </li>
-        ))}
+                <span className={`tabular text-xs font-semibold ${tone.text}`}>
+                  {boss.headroom}× <span className="text-[10px] font-normal">{tone.label}</span>
+                </span>
+              </div>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-ink-mute">{boss.note}</p>
+            </li>
+          )
+        })}
       </ul>
 
       <div className="mt-4 rounded-lg border border-warn/30 bg-warn/5 p-3">

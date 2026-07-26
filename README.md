@@ -148,6 +148,18 @@ reference character T1 physical damage needs item level 82 and the bow is 76 —
 a new base — while T1 dexterity needs 74 and is achievable right now. Those are
 different actions at very different costs and are never merged.
 
+### Survivability is measured against real map tiers
+
+Waystone tier maps to area level as **64 + tier**, taken from the waystone item
+bases and corroborated four ways. Headroom is the character's smallest fatal hit
+over base monster damage at that level, reported per tier and against the boss
+levels Path of Building itself uses — 82 (pinnacle floor) and 85 (the ceiling for
+all enemies).
+
+The figure is against a **base** monster. Rare and unique multipliers and map
+modifiers are not in the data, so it is an upper bound, never a verdict that a
+tier is safe — and it says so next to the number rather than below the fold.
+
 ## Correctness rules
 
 Each of these is a real bug that shipped before, and each is locked by a test.

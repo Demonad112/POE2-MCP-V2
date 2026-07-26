@@ -90,15 +90,22 @@ try {
   }
 
   // --- headroom, and the refusal to name a map tier -------------------------
-  const headroom = page.locator('section', { has: page.getByRole('heading', { name: 'Survivability by area level' }) })
+  const headroom = page.locator('section', { has: page.getByRole('heading', { name: 'Survivability by map tier' }) })
   await headroom.waitFor({ timeout: 15000 })
   const hText = await headroom.innerText()
-  if (!/3,808 chaos/.test(hText)) failures.push(`headroom panel missing the real lowest max hit: ${hText.slice(0, 120)}`)
-  if (!/BASE monster/.test(hText)) failures.push('headroom panel does not show its caveats')
-  if (!/map tier/i.test(hText)) failures.push('headroom panel does not state that map tier is underivable')
+  if (!/3,808/.test(hText) || !/chaos/.test(hText)) {
+    failures.push(`headroom panel missing the real lowest max hit: ${hText.slice(0, 120)}`)
+  }
+  if (!/T16/.test(hText) || !/T1\b/.test(hText)) failures.push('headroom panel does not render the waystone tiers')
+  if (!/level 82/.test(hText) || !/level 85/.test(hText)) {
+    failures.push("headroom panel does not render Path of Building's boss reference levels")
+  }
+  if (!/upper bound, not a safety verdict/.test(hText)) {
+    failures.push('headroom panel presents the base-monster figure without qualifying it')
+  }
   await headroom.scrollIntoViewIfNeeded()
   await headroom.screenshot({ path: join(outDir, 'headroom.png') })
-  console.log('headroom panel: figure, caveats and the map-tier refusal all rendered')
+  console.log('headroom panel: tiers, boss levels and caveats all rendered')
 
   // --- no horizontal overflow at mobile width -------------------------------
   await page.setViewportSize({ width: 390, height: 844 })

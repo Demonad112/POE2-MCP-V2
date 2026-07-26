@@ -76,10 +76,43 @@ from [RePoE-fork](https://repoe-fork.github.io/poe2/) `mods.min.json` and
 plus 5,220 display-only mods (implicits, corrupted, unique) and 4,494 base names
 with their spawn tags. 2.0 MB raw, 0.26 MB gzipped.
 
-**`monster-stats.json`** — base monster damage by area level, from RePoE
-`default_monster_stats` and pob-data `WorldAreas`. 3.1 KB raw, 1.5 KB gzipped.
-Carries area LEVELS only: WorldAreas has no map tier field, and its 158 endgame
-maps use six distinct levels, so no T1-T15 ladder is derivable.
+**`monster-stats.json`** — base monster damage by area level, waystone tier to
+area level, and Path of Building's boss reference levels. From RePoE
+`default_monster_stats` and `base_items`, plus pob-data `WorldAreas`. 4.6 KB raw,
+1.9 KB gzipped.
+
+### A second correction
+
+An earlier version of this artifact asserted that map tier is **not derivable**,
+because `WorldAreas` carries no tier field and its 158 endgame maps use only six
+distinct levels. That observation was right; the conclusion was wrong. I had
+looked in one place.
+
+Waystones are *items*. `base_items.json` lists `Waystone (Tier 1..16)` with item
+class `Map`, and their `drop_level` equals **64 + tier** for every tier from 2 to
+16. Tier 1 lists 58 — where the item begins dropping in the late campaign, not
+the map's own level — and 64 + 1 = 65, which WorldAreas independently confirms.
+
+Four separate corroborations:
+
+- `drop_level == 64 + tier` for all 15 of tiers 2–16
+- WorldAreas' real map levels 65 / 74 / 75 / 79 / 80 are exactly tiers 1 / 10 / 11 / 15 / 16
+- the highest waystone (T16) sits at 80, the highest map level in WorldAreas
+- pob-data `Misc.mapLevelLifeMult` is keyed 66–90, starting one above tier 1
+
+The build script fails if more than one tier ever stops matching the formula,
+rather than silently drifting.
+
+**Boss levels** are quoted from
+[PathOfBuildingCommunity/PathOfBuilding-PoE2](https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2),
+`src/Modules/ConfigOptions.lua`, the `enemyLevel` tooltip: *"The maximum level
+for normal enemies and all bosses is 85"* and *"The default and minimum level for
+pinnacle bosses and uber pinnacle bosses is 82."* Those are prose constants, so
+they are written out with their source rather than scraped.
+
+**Still not modelled:** rare and unique monster damage multipliers, and map
+modifiers. So the headroom figure is an upper bound against a normal monster,
+never a verdict that a tier is safe.
 
 **`mods.json`** — affix names and roll windows, keyed by mod text. Built by
 `scripts/build-mods.mjs` from `data/game/mods/mods.json` joined to

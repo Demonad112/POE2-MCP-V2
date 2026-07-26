@@ -286,11 +286,25 @@ console.log(
 )
 
 const headroom = await callTool('poe2_survivability_headroom')
-if (headroom.lowestMaximumHit !== 3808 || !headroom.unresolved?.some((u) => /map tier/i.test(u.question))) {
-  failures.push(`headroom wrong or silently claims a map tier: ${JSON.stringify(headroom).slice(0, 200)}`)
+if (headroom.lowestMaximumHit !== 3808 || headroom.tiers?.length !== 16) {
+  failures.push(`headroom wrong: ${JSON.stringify(headroom).slice(0, 220)}`)
+}
+// Tier maps to area level as 64 + tier, from the waystone item bases.
+const t16 = headroom.tiers?.find((t) => t.tier === 16)
+if (t16?.areaLevel !== 80 || t16?.baseMonsterHit !== 334) {
+  failures.push(`tier 16 should be area level 80 at 334 base damage: ${JSON.stringify(t16)}`)
+}
+// PoB's own reference levels.
+if (!headroom.bosses?.some((b) => b.level === 82) || !headroom.bosses?.some((b) => b.level === 85)) {
+  failures.push(`boss reference levels missing: ${JSON.stringify(headroom.bosses)}`)
+}
+// The base figure must never read as a safety verdict.
+if (!/upper bound, not a safety verdict/.test(headroom.caveats?.[0] ?? '')) {
+  failures.push('headroom does not qualify the base-monster figure')
 }
 console.log(
-  `headroom: ${headroom.lowestMaximumHit} ${headroom.lowestMaximumHitType} — ${headroom.rows?.at(-1)?.headroom}x at area level ${headroom.rows?.at(-1)?.areaLevel}; map tier declined as underivable`,
+  `headroom: ${headroom.lowestMaximumHit} ${headroom.lowestMaximumHitType} — comfortable to T${headroom.highestComfortableTier}, ` +
+    `${t16?.headroom}x at T16, ${headroom.bosses?.find((b) => b.level === 85)?.headroom}x vs a level-85 boss`,
 )
 
 // --- Path of Building bridge ------------------------------------------------
