@@ -13,13 +13,15 @@ Two rules shape everything here:
 
 ## Status
 
-**Milestone 1** — analysis core and web app. The visual passive tree and the MCP
-server land in milestone 2.
+Analysis core, web app with a visual passive tree, and a 15-tool MCP server are
+all shipped. The Path of Building bridge for what-if simulation is not built yet.
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 63 tests. |
-| `apps/web` | Static Next.js app, deployed to GitHub Pages. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 89 tests. |
+| `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
+| `apps/mcp` | 15-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 
 ## Why this exists
@@ -81,11 +83,23 @@ packages/core/           pure analysis — the single source of truth
   defense/               0.5 mechanics incl. deflection and ward
   dps/                   Tier 1 reader over skills[].dps[0]
   pob/                   export decode + PlayerStat reader
+  gems/                  support gem parsing and validation
+  tree/                  passive graph, path finding, allocation
   recommend/             ranked, quantified findings
   reconcile/             flags drift between sources
+packages/data/           generated artifacts + provenance
 apps/web/                Next.js static export -> GitHub Pages
+apps/mcp/                MCP server over stdio
 services/ninja-proxy/    SSE hop + CORS, deployed separately
 ```
+
+Neither app contains analysis logic. Both import `packages/core`, so they agree
+by construction — V1's fatal flaw was vendoring a duplicate analyser into its web
+app, after which the two could only agree by coincidence.
+
+The MCP tool table is **generated from the registry**
+(`npm run tools -w @poe2/mcp`) and CI fails if it drifts. V1 shipped four
+different tool counts across its docs because that list was hand-maintained.
 
 ### DPS is tiered
 
