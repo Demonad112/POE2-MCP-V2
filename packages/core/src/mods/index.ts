@@ -1,6 +1,18 @@
 /**
- * Item modifier database: affixes, roll ranges, tiers, and which item classes
- * each modifier can appear on.
+ * Item modifier database, keyed by mod TEXT.
+ *
+ * Affix names, roll windows, and which item classes each modifier can appear on.
+ * Used when a mod line is all you have — a pasted item, a typed line. When a
+ * character is loaded, prefer `gear/`: poe.ninja ships the actual mod id on every
+ * equipped item, which is exact where text matching is a guess.
+ *
+ * ## No tier numbers here
+ *
+ * They were removed after being proven wrong twice. A tier is meaningless
+ * without an item class: `ColdResistance` has 16 members game-wide and 8 on a
+ * ring, so a global number tells a ring wearer "T9 of 16" when they have T1 of
+ * 8. Tiers live in `gear/tiers.ts`, resolved against a base. See
+ * packages/data/scripts/build-mods.mjs for the full investigation.
  *
  * ## A correction
  *
@@ -40,9 +52,14 @@ export interface ModEntry {
   kind: string
   level: number
   stats: ModStat[]
-  /** 1 is the highest tier. */
-  tier: number
-  tiers: number
+  /**
+   * Deliberately absent: a tier is meaningless without an item class.
+   * `ColdResistance` has 16 members game-wide and 8 on a ring, so a global
+   * number would tell a ring wearer "T9 of 16" when they have T1 of 8.
+   * Use `ModTiers` in `gear/`, which resolves ladders against a base.
+   */
+  tier?: never
+  tiers?: never
 }
 
 export interface ModData {
@@ -71,10 +88,8 @@ export function modValues(text: string): number[] {
 }
 
 export interface RollAssessment {
-  /** Where the roll sits in this tier's window, 0 (minimum) to 1 (maximum). */
+  /** Where the roll sits in this affix's window, 0 (minimum) to 1 (maximum). */
   positionInTier: number | null
-  tier: number
-  tiers: number
   affix: string | null
   /** This tier's window. */
   min: number
@@ -84,7 +99,15 @@ export interface RollAssessment {
   level: number
 }
 
-export interface ItemModAnalysis {
+/**
+ * A mod line assessed from its TEXT alone.
+ *
+ * Used for pasted or typed mod lines, where there is nothing else to go on.
+ * When a character is loaded, prefer `analyzeItem` in `gear/` — poe.ninja ships
+ * the actual mod id on every equipped item, which is exact where text matching
+ * is a guess.
+ */
+export interface TextModAnalysis {
   text: string
   /** Null when the line matches nothing in the database. */
   matched: RollAssessment | null
@@ -166,8 +189,9 @@ export class ModDatabase {
       if (out.length >= limit * 4) break
     }
 
-    // Best tier first, so the top of the list is what a crafter cares about.
-    return out.sort((a, b) => a.tier - b.tier || b.level - a.level).slice(0, limit)
+    // Highest item level first — the strongest rungs are what a crafter cares
+    // about. Not called "tier" because that needs an item class.
+    return out.sort((a, b) => b.level - a.level).slice(0, limit)
   }
 
   /**
@@ -177,7 +201,7 @@ export class ModDatabase {
    * counterpart in the database — many lines are runes, corrupted implicits or
    * unique-only mods that this table does not carry.
    */
-  assess(text: string): ItemModAnalysis {
+  assess(text: string): TextModAnalysis {
     const skeleton = modSkeleton(text)
     const candidates = this.bySkeleton.get(skeleton)
     if (!candidates?.length) {
@@ -191,14 +215,16 @@ export class ModDatabase {
     const values = modValues(text)
     const value = values[0]
     if (value === undefined) {
-      return { text, matched: null, note: 'This line carries no numeric roll to place in a tier.' }
+      return { text, matched: null, note: 'This line carries no numeric roll to place in a window.' }
     }
 
-    // The tier whose window contains the roll. Several tiers can overlap, so
-    // prefer the best (lowest-numbered) tier that fits.
+    // Rungs whose window contains the roll. Several overlap, so prefer the one
+    // demanding the highest item level — that is the strongest affix it could
+    // be. Which TIER that is depends on the item class, which text alone does
+    // not carry, so no tier number is claimed here.
     const family = candidates
       .filter((m) => m.stats.length === values.length)
-      .sort((a, b) => a.tier - b.tier)
+      .sort((a, b) => b.level - a.level)
     const pool = family.length ? family : candidates
 
     const fits = pool.filter((m) => {
@@ -213,7 +239,7 @@ export class ModDatabase {
       return {
         text,
         matched: null,
-        note: `The stat is recognised but ${value} falls outside every known tier window for it, which usually means the value is modified by quality, a rune, or an increase from elsewhere on the character.`,
+        note: `The stat is recognised but ${value} falls outside every known roll window for it, which usually means the value is modified by quality, a rune, or an increase from elsewhere on the character.`,
       }
     }
 
@@ -226,15 +252,15 @@ export class ModDatabase {
       text,
       matched: {
         positionInTier: span > 0 ? (value - low) / span : null,
-        tier: chosen.tier,
-        tiers: chosen.tiers,
         affix: chosen.affix,
         min: low,
         max: high,
         bestPossible,
         level: chosen.level,
       },
-      note: null,
+      note:
+        'Tier is not reported: it depends on the item class, which a mod line alone does not carry. ' +
+        'Load a character and use the gear tools, or pass a base type, for a real tier.',
     }
   }
 
@@ -330,7 +356,7 @@ export class ModDatabase {
 
   /** Assess every mod line on an item. */
   assessAll(lines: string[]): {
-    mods: ItemModAnalysis[]
+    mods: TextModAnalysis[]
     matched: number
     unmatched: number
     limitation: string

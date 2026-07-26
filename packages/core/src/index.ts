@@ -22,6 +22,7 @@ export * from './reconcile/index.js'
 export * from './ninja/url.js'
 export * from './ninja/client.js'
 
+export * from './gear/index.js'
 export * from './gems/index.js'
 export * from './mods/index.js'
 export * from './tree/index.js'

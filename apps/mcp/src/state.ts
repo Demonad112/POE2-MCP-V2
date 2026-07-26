@@ -16,12 +16,15 @@ import {
   ModDatabase,
   PassiveTree,
   PobBridge,
+  ModTiers,
   indexSupports,
   parseAllSetups,
   type Analysis,
   type CharModel,
   type ModBaseData,
   type ModData,
+  type ModTierData,
+  type MonsterStatData,
   type PassiveTreeData,
   type SkillSetup,
   type SupportGem,
@@ -54,6 +57,31 @@ let current: LoadedCharacter | null = null
 let tree: PassiveTree | null = null
 let mods: ModDatabase | null = null
 let pob: PobBridge | null = null
+let gearTiers: ModTiers | null = null
+let monsters: MonsterStatData | null = null
+
+/**
+ * Affix ladders. 2 MB, so loaded on first use like the mod table.
+ *
+ * Separate from modDatabase(): that one assesses mod TEXT, which is all you have
+ * for a pasted line. This one is keyed by mod id, which poe.ninja ships on every
+ * equipped item — exact where text matching is a guess.
+ */
+export function modTiers(): ModTiers {
+  if (!gearTiers) {
+    const data = JSON.parse(readFileSync(join(dataDir, 'mod-tiers.json'), 'utf8')) as ModTierData
+    gearTiers = new ModTiers(data)
+  }
+  return gearTiers
+}
+
+/** Base monster damage by area level, for the survivability headroom view. */
+export function monsterStats(): MonsterStatData {
+  if (!monsters) {
+    monsters = JSON.parse(readFileSync(join(dataDir, 'monster-stats.json'), 'utf8')) as MonsterStatData
+  }
+  return monsters
+}
 
 /**
  * The Path of Building bridge, created once.

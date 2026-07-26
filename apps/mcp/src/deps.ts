@@ -7,10 +7,15 @@
 
 export {
   NODE_KIND,
+  analyzeContent,
+  analyzeItem,
   PobBridge,
   PobBridgeError,
   decodePobExport,
   editPobTree,
+  findResistanceSwaps,
+  findTierUpgrades,
+  normalizeItems,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
@@ -20,6 +25,7 @@ export {
   simulatePassiveNode,
   statSources,
   suggestNodesForStat,
+  summarizeSwaps,
   supportedStats,
   validateByName,
   validateSetup,

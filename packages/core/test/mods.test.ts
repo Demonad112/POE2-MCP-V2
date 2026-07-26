@@ -1,5 +1,10 @@
 /**
- * Mod database: tiers, roll assessment, and the things it refuses to answer.
+ * Text-keyed mod database: roll assessment, and the things it refuses to answer.
+ *
+ * Tier numbers used to live here and were removed after being proven wrong: a
+ * tier is meaningless without an item class. These tests now assert that it
+ * SAYS so rather than guessing. Tiers are covered in gear.test.ts, against a
+ * real base.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -42,7 +47,7 @@ describe('normalising mod text', () => {
   })
 })
 
-describe('tiers from real game data', () => {
+describe('affix ladders from real game data', () => {
   it('loads the database', () => {
     expect(db.size).toBeGreaterThan(12_000)
   })
@@ -51,28 +56,32 @@ describe('tiers from real game data', () => {
     const results = db.search('to Strength', { kind: 'SUFFIX', limit: 5 })
     expect(results.length).toBeGreaterThan(0)
     const best = results[0]!
-    // Tier 1 is the highest, and carries the real affix name.
-    expect(best.tier).toBe(1)
+    // No tier number: that needs an item class, which a text search has not
+    // been given. The highest item level requirement is what it can honestly
+    // rank by.
+    expect(best.tier).toBeUndefined()
+    expect(best.level).toBeGreaterThan(0)
     expect(best.affix).toBe('of the Gods')
     expect(best.level).toBe(81)
   })
 
-  it('ranks better tiers first', () => {
+  it('ranks the strongest rungs first, by item level', () => {
     const results = db.search('to Strength', { kind: 'SUFFIX', limit: 5 })
-    const tiers = results.map((r) => r.tier)
-    expect([...tiers].sort((a, b) => a - b)).toEqual(tiers)
+    const levels = results.map((r) => r.level)
+    expect([...levels].sort((a, b) => b - a)).toEqual(levels)
   })
 })
 
 describe('assessing a real roll', () => {
-  it('places a roll in its tier window', () => {
+  it('places a roll in its affix window', () => {
     const result = db.assess('+35 to Strength')
     expect(result.matched).not.toBeNull()
-    expect(result.matched!.tier).toBeLessThanOrEqual(2)
-    expect(result.matched!.min).toBeLessThanOrEqual(35)
-    expect(result.matched!.max).toBeGreaterThanOrEqual(35)
+    // Position in the window is real; a tier number is not claimed.
     expect(result.matched!.positionInTier).toBeGreaterThanOrEqual(0)
     expect(result.matched!.positionInTier).toBeLessThanOrEqual(1)
+    expect(result.note).toMatch(/depends on the item class/)
+    expect(result.matched!.min).toBeLessThanOrEqual(35)
+    expect(result.matched!.max).toBeGreaterThanOrEqual(35)
   })
 
   it('reports the best roll the affix family can produce', () => {
@@ -92,7 +101,7 @@ describe('assessing a real roll', () => {
     expect(analysis.matched).toBeGreaterThan(0)
     for (const mod of analysis.mods) {
       if (!mod.matched) expect(mod.note).toBeTruthy()
-      else expect(mod.matched.tier).toBeGreaterThanOrEqual(1)
+      else expect(mod.matched.max).toBeGreaterThanOrEqual(mod.matched.min)
     }
   })
 })
@@ -104,17 +113,17 @@ describe('refusing to guess', () => {
     expect(result.note).toContain('No affix in the database')
   })
 
-  it('says so when a stat is known but the value fits no tier', () => {
+  it('says so when a stat is known but the value fits no roll window', () => {
     const result = db.assess('+99999 to Strength')
     expect(result.matched).toBeNull()
-    expect(result.note).toMatch(/outside every known tier/)
+    expect(result.note).toMatch(/outside every known roll window/)
   })
 
   it('says base compatibility is uncovered when no compatibility data is loaded', () => {
-    // `db` is built from the tier table alone. Compatibility is available from
-    // a second source (see below) but must not be implied when absent.
+    // `db` is built from the roll-window table alone. Compatibility comes from
+    // a second source (see below) and must not be implied when absent.
     const analysis = db.assessAll(['+35 to Strength'])
-    expect(analysis.limitation).toMatch(/no mod-to-item-base compatibility/i)
+    expect(analysis.limitation).toMatch(/compatibility lives in mod-bases\.json/i)
 
     const result = db.validateItemMods('Militant Bow', ['+35 to Strength'])
     expect(result.itemClass).toBeNull()

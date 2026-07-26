@@ -5,7 +5,7 @@
 
 # Tools
 
-24 tools. 20 are read-only; 4 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`, `poe2_pob_rank_nodes`). Nothing here ever writes to a game account, a file, or poe.ninja.
+27 tools. 23 are read-only; 4 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`, `poe2_pob_rank_nodes`). Nothing here ever writes to a game account, a file, or poe.ninja.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -26,6 +26,9 @@
 | `poe2_analyze_item_mods` | Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and check every line against the modifier pool for that item’s class. | `slot`, `mods`, `baseType` |
 | `poe2_suggest_tree_routes` | Find the cheapest unallocated passive nodes granting a stat, with the real point cost and the exact route from the character’s current tree. | `stat`, `maxCost`, `notablesOnly`, `limit` |
 | `poe2_export_pob_with_tree` | Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to paste into Path of Building. | `allocate`, `deallocate`, `replace` |
+| `poe2_analyze_gear` | Every modifier on every equipped item, with its affix tier, the roll inside that tier’s range, and what better tiers exist. | `slot`, `includeInactive` |
+| `poe2_find_gear_improvements` | Two kinds of concrete gear change, both grounded in the affix data rather than opinion. | `limit` |
+| `poe2_survivability_headroom` | How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed as a headroom multiple. | — |
 | `poe2_pob_status` | Report whether a live Path of Building instance is reachable, which build it has open, and what its engine currently computes. | `includeCalcs` |
 | `poe2_pob_load_character` ⚠️ | Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. | `allocate`, `deallocate` |
 | `poe2_pob_simulate_node` ⚠️ | Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree back. | `nodeId` |
@@ -191,6 +194,31 @@ Apply passive tree changes to the loaded character’s Path of Building export a
 - `allocate` *(optional)* — Node ids to allocate, on top of the current tree.
 - `deallocate` *(optional)* — Node ids to remove.
 - `replace` *(optional)* — Replace the allocation outright. Takes precedence.
+
+### `poe2_analyze_gear`
+
+**Analyse equipped gear, mod by mod**
+
+Every modifier on every equipped item, with its affix tier, the roll inside that tier’s range, and what better tiers exist. Tiers are resolved against the item’s own class — T1 is the best. Crucially it separates upgrades achievable on the item you already own from those needing a higher item level base, because those are different actions at very different costs. Modifiers poe.ninja gave no id for (implicits, runes) are shown as text with no tier rather than guessed at.
+
+- `slot` *(optional)* — One slot id only. Omit for every equipped item.
+- `includeInactive` *(optional)* — Include the inactive weapon set. Default false — those stats are not live.
+
+### `poe2_find_gear_improvements`
+
+**Find gear changes worth making**
+
+Two kinds of concrete gear change, both grounded in the affix data rather than opinion. First, resistance rebalancing: modifiers granting resistance the character is already over cap on are provably wasted, and this names the item, the modifier, and the specific affixes that could replace it to cover what is short — ranked by how much of the gap each closes. Second, tier upgrades: modifiers sitting below the best tier their item could hold. Corrupted items are excluded from recrafting advice because their affixes cannot change.
+
+- `limit` *(optional)* — Cap each list. Default 8.
+
+### `poe2_survivability_headroom`
+
+**Survivability against area level**
+
+How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed as a headroom multiple. Deliberately does NOT name a map tier: no map tier data exists in any source used here, and mapping area level to tier would be invented rather than derived. The figure is against a BASE monster — rares, uniques and map modifiers hit considerably harder — and the caveats are returned alongside it so the number is never read bare.
+
+_No parameters._
 
 ### `poe2_pob_status`
 

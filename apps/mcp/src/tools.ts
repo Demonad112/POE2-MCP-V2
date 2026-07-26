@@ -13,9 +13,15 @@
 import { z } from 'zod'
 import {
   NODE_KIND,
+  analyzeContent,
+  analyzeItem,
   decodePobExport,
   editPobTree,
   findMechanicSafe,
+  findResistanceSwaps,
+  findTierUpgrades,
+  normalizeItems,
+  summarizeSwaps,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
@@ -34,6 +40,8 @@ import {
   loadCharacter,
   loadedCharacter,
   modDatabase,
+  modTiers,
+  monsterStats,
   passiveTree,
   pobBridge,
   requireCharacter,
@@ -507,12 +515,15 @@ export const TOOLS: ToolDef[] = [
           id: m.id,
           affix: m.affix,
           kind: m.kind,
-          tier: `${m.tier} of ${m.tiers}`,
           levelRequirement: m.level,
           rolls: m.stats.map((s) => ({ stat: s.id, min: s.textMin, max: s.text })),
           canAppearOn: db.itemClasses.length ? (modClassesFor(db, m.id) ?? 'not listed') : 'compatibility data unavailable',
         })),
         limitation: db.limitation,
+        note:
+          'No tier numbers here: a tier depends on the item class, and a text search has not been given one. ' +
+          'Results are ordered by required item level, strongest first. For real tiers, load a character and use ' +
+          'poe2_analyze_gear, which resolves ladders against each item’s own base.',
       }
     },
   },
@@ -665,6 +676,114 @@ export const TOOLS: ToolDef[] = [
         note: 'Only the passive tree was changed. Paste this into Path of Building to see what its engine makes of it.',
       }
     },
+  },
+
+  {
+    name: 'poe2_analyze_gear',
+    title: 'Analyse equipped gear, mod by mod',
+    description:
+      'Every modifier on every equipped item, with its affix tier, the roll inside that tier’s range, and what better ' +
+      'tiers exist. Tiers are resolved against the item’s own class — T1 is the best. Crucially it separates upgrades ' +
+      'achievable on the item you already own from those needing a higher item level base, because those are ' +
+      'different actions at very different costs. Modifiers poe.ninja gave no id for (implicits, runes) are shown as ' +
+      'text with no tier rather than guessed at.',
+    inputSchema: {
+      slot: z.number().int().optional().describe('One slot id only. Omit for every equipped item.'),
+      includeInactive: z.boolean().optional().describe('Include the inactive weapon set. Default false — those stats are not live.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const { model, analysis } = requireCharacter()
+      const tiers = modTiers()
+      let items = normalizeItems(model)
+      if (!args.includeInactive) items = items.filter((i) => i.active)
+      if (args.slot !== undefined) items = items.filter((i) => i.slotId === Number(args.slot))
+      if (!items.length) {
+        throw new Error(
+          args.slot !== undefined
+            ? `Nothing equipped in slot ${args.slot}.`
+            : 'No equipped items found on this character.',
+        )
+      }
+
+      const analysed = items.map((i) => analyzeItem(i, tiers, analysis.defense))
+      return {
+        items: analysed,
+        totals: {
+          items: analysed.length,
+          tieredMods: analysed.reduce((n, i) => n + i.mods.filter((m) => m.tier !== null).length, 0),
+          atBestTier: analysed.reduce((n, i) => n + i.mods.filter((m) => m.tier === 1).length, 0),
+          wastedMods: analysed.reduce((n, i) => n + i.mods.filter((m) => m.waste).length, 0),
+        },
+        note: 'T1 is the best tier. Tier counts are per item class — a ring and a bow have different ladders for the same stat.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_find_gear_improvements',
+    title: 'Find gear changes worth making',
+    description:
+      'Two kinds of concrete gear change, both grounded in the affix data rather than opinion. First, resistance ' +
+      'rebalancing: modifiers granting resistance the character is already over cap on are provably wasted, and this ' +
+      'names the item, the modifier, and the specific affixes that could replace it to cover what is short — ranked ' +
+      'by how much of the gap each closes. Second, tier upgrades: modifiers sitting below the best tier their item ' +
+      'could hold. Corrupted items are excluded from recrafting advice because their affixes cannot change.',
+    inputSchema: {
+      limit: z.number().int().optional().describe('Cap each list. Default 8.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const { model, analysis } = requireCharacter()
+      const tiers = modTiers()
+      const items = normalizeItems(model)
+      const analysed = items.map((i) => analyzeItem(i, tiers, analysis.defense))
+      const limit = Math.max(1, Number(args.limit ?? 8))
+
+      const swaps = findResistanceSwaps(analysed, items, tiers, analysis.defense)
+      const upgrades = findTierUpgrades(analysed)
+
+      const strip = (m: { slotId: number; slotLabel: string; itemName: string; text: string; tier: number | null; tiers: number | null; upgrades: unknown[] }) => ({
+        slotId: m.slotId,
+        slotLabel: m.slotLabel,
+        itemName: m.itemName,
+        mod: m.text,
+        tier: m.tier,
+        ofTiers: m.tiers,
+        best: m.upgrades[0],
+      })
+
+      return {
+        shortfallSummary: summarizeSwaps(swaps, analysis.defense),
+        resistanceSwaps: swaps.slice(0, limit),
+        tierUpgrades: {
+          onItemsYouOwn: upgrades.onThisItem.slice(0, limit).map(strip),
+          needsHigherItemLevelBase: upgrades.needsBetterBase.slice(0, limit).map(strip),
+        },
+        totals: {
+          resistanceSwaps: swaps.length,
+          onItemsYouOwn: upgrades.onThisItem.length,
+          needsHigherItemLevelBase: upgrades.needsBetterBase.length,
+        },
+        note:
+          'Only measurable waste is reported. Resistance above the cap is provably doing nothing; whether a damage ' +
+          'modifier suits a build depends on where that build is heading, which is not judged here.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_survivability_headroom',
+    title: 'Survivability against area level',
+    description:
+      'How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed ' +
+      'as a headroom multiple. Deliberately does NOT name a map tier: no map tier data exists in any source used ' +
+      'here, and mapping area level to tier would be invented rather than derived. The figure is against a BASE ' +
+      'monster — rares, uniques and map modifiers hit considerably harder — and the caveats are returned alongside it ' +
+      'so the number is never read bare.',
+    inputSchema: {},
+    annotations: READ_ONLY,
+    handler: () => analyzeContent(requireCharacter().analysis.defense, monsterStats()),
   },
 
   {
