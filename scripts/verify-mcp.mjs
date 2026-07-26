@@ -247,6 +247,24 @@ if (typeof target === 'number') {
 const emptyEdit = await callTool('poe2_export_pob_with_tree', {})
 if (!emptyEdit.error?.includes('at least one')) failures.push('empty pob edit was not rejected')
 
+// --- Path of Building bridge ------------------------------------------------
+// No Path of Building runs in CI, and that is the point: the interesting
+// assertion is that the bridge degrades into an explanation rather than an
+// exception or — worse — a plausible-looking zero.
+const pob = await callTool('poe2_pob_status')
+if (pob.connected !== false) {
+  failures.push(`pob status claimed a connection with no Path of Building running: ${JSON.stringify(pob).slice(0, 200)}`)
+}
+if (!pob.reason?.includes('MCPConfig')) {
+  failures.push('pob status did not mention the MCPConfig gotcha, which is indistinguishable from PoB being closed')
+}
+
+const sim = await callTool('poe2_pob_simulate_node', { nodeId: 1 })
+if (!sim.error || !/Path of Building/i.test(sim.error)) {
+  failures.push(`pob simulation should fail readably with no PoB running, got: ${JSON.stringify(sim).slice(0, 200)}`)
+}
+console.log('pob bridge: absent PoB reported as unreachable, not as a result')
+
 // --- health -----------------------------------------------------------------
 const health = await callTool('poe2_health_check')
 if (health.passiveTree?.nodes !== 4975 || !health.character?.loaded) {

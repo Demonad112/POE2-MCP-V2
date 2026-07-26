@@ -15,6 +15,7 @@ import {
   NinjaClient,
   ModDatabase,
   PassiveTree,
+  PobBridge,
   indexSupports,
   parseAllSetups,
   type Analysis,
@@ -25,6 +26,7 @@ import {
   type SkillSetup,
   type SupportGem,
 } from '@poe2/core'
+import { tcpTransport } from './pob-transport.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 /** dist/ sits one level under apps/mcp, so data is four levels up. */
@@ -51,6 +53,18 @@ export interface LoadedCharacter {
 let current: LoadedCharacter | null = null
 let tree: PassiveTree | null = null
 let mods: ModDatabase | null = null
+let pob: PobBridge | null = null
+
+/**
+ * The Path of Building bridge, created once.
+ *
+ * Constructing it opens nothing — the first call does. So this is safe to make
+ * eagerly even when Path of Building is not running, which is the common case.
+ */
+export function pobBridge(): PobBridge {
+  if (!pob) pob = new PobBridge({ transport: tcpTransport })
+  return pob
+}
 
 export const client = new NinjaClient({
   // Server-side, so poe.ninja is reachable directly — no proxy needed. The

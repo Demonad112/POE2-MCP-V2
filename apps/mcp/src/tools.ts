@@ -20,13 +20,23 @@ import {
   pathToNode,
   readPlayerStats,
   resolveAllocation,
+  simulateCustomMods,
+  simulatePassiveNode,
   statSources,
   suggestNodesForStat,
   supportedStats,
   validateByName,
   validateSetup,
 } from './deps.js'
-import { client, loadCharacter, loadedCharacter, modDatabase, passiveTree, requireCharacter } from './state.js'
+import {
+  client,
+  loadCharacter,
+  loadedCharacter,
+  modDatabase,
+  passiveTree,
+  pobBridge,
+  requireCharacter,
+} from './state.js'
 
 export interface ToolDef {
   name: string
@@ -657,6 +667,145 @@ export const TOOLS: ToolDef[] = [
   },
 
   {
+    name: 'poe2_pob_status',
+    title: 'Check the Path of Building bridge',
+    description:
+      'Report whether a live Path of Building instance is reachable, which build it has open, and what its engine ' +
+      'currently computes. Everything else in this server reads poe.ninja’s numbers; this reads Path of Building’s ' +
+      'own, which is what makes what-if simulation possible. Call this before the simulation tools so a connection ' +
+      'problem is not mistaken for a result.',
+    inputSchema: {
+      includeCalcs: z.boolean().optional().describe('Also return the current computed stats. Default true.'),
+    },
+    annotations: { ...READ_ONLY, openWorldHint: true },
+    handler: async (args) => {
+      const bridge = pobBridge()
+      const ping = await bridge.ping()
+      if (!ping) {
+        return {
+          connected: false,
+          reason:
+            'No Path of Building instance answered on 127.0.0.1 ports 49085-49088. It must be running with the MCP ' +
+            'Bridge addon installed. If it is running, check that the addon declares MCPConfig as a GLOBAL — declaring ' +
+            'it local stops the TCP server binding and looks identical to Path of Building not running.',
+          hint: 'Without this, damage figures come from poe.ninja only and what-if simulation is unavailable.',
+        }
+      }
+
+      let calcs: Record<string, unknown> | { error: string } | null = null
+      if (args.includeCalcs !== false && ping.build_loaded) {
+        try {
+          calcs = await bridge.getCalcs()
+        } catch (err) {
+          calcs = { error: (err as Error).message }
+        }
+      }
+
+      return {
+        connected: true,
+        port: bridge.port,
+        addonVersion: ping.version ?? null,
+        pobVersion: ping.pob_version ?? null,
+        buildLoaded: ping.build_loaded ?? false,
+        buildName: ping.build_name ?? null,
+        calcs,
+        note: ping.build_loaded
+          ? null
+          : 'Path of Building is running but has no build open. Load one, or use poe2_pob_load_character.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_load_character',
+    title: 'Send the loaded character to Path of Building',
+    description:
+      'Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine ' +
+      'can be used for simulation. Optionally applies passive tree changes on the way, letting a suggested route be ' +
+      'tried directly. This replaces whatever build Path of Building currently has open — unsaved work there is lost.',
+    inputSchema: {
+      allocate: z.array(z.number().int()).optional().describe('Node ids to allocate before sending.'),
+      deallocate: z.array(z.number().int()).optional().describe('Node ids to remove before sending.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    handler: async (args) => {
+      const { model } = requireCharacter()
+      let code = model.pathOfBuildingExport
+      if (!code) {
+        throw new Error(
+          'poe.ninja did not attach a Path of Building export to this character, so there is nothing to send.',
+        )
+      }
+
+      const allocate = (args.allocate as number[] | undefined) ?? []
+      const deallocate = (args.deallocate as number[] | undefined) ?? []
+      let edited: { added: number[]; removed: number[]; warnings: string[] } | null = null
+      if (allocate.length || deallocate.length) {
+        const result = await editPobTree(code, { allocate, deallocate })
+        code = result.code
+        edited = { added: result.added, removed: result.removed, warnings: result.warnings }
+      }
+
+      await pobBridge().loadBuild(code)
+
+      return {
+        loaded: true,
+        character: requireCharacter().analysis.identity.name,
+        treeEdits: edited,
+        note:
+          'Path of Building loads asynchronously. Call poe2_pob_status before reading any figure from it, rather ' +
+          'than assuming the build is in place.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_simulate_node',
+    title: 'Measure what a passive node is worth',
+    description:
+      'Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree ' +
+      'back. The number comes from Path of Building’s own damage engine, so it is measured rather than estimated. ' +
+      'Reports the real point cost, which is often more than one: Path of Building auto-paths, taking every node on ' +
+      'the shortest route. Says explicitly whether the tree was restored — a failed restore leaves your Path of ' +
+      'Building window modified.',
+    inputSchema: {
+      nodeId: z.number().int().describe('Passive node id to test. Get candidates from poe2_suggest_tree_routes.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const nodeId = Number(args.nodeId)
+      const name = passiveTree().node(nodeId)?.name
+      const result = await simulatePassiveNode(pobBridge(), nodeId, name)
+      return { ...result, provenance: 'pob-sim' }
+    },
+  },
+
+  {
+    name: 'poe2_pob_simulate_mods',
+    title: 'Measure what a set of modifiers is worth',
+    description:
+      'Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, ' +
+      'then restore what was there. This answers "what would +40 maximum life on a ring do" without owning the ring, ' +
+      'and prices a gear swap in real numbers. Write modifiers the way an item does: "+40 to maximum Life", ' +
+      '"25% increased Physical Damage".',
+    inputSchema: {
+      mods: z.array(z.string()).describe('Modifier lines, in item wording.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const mods = (args.mods as string[] | undefined) ?? []
+      const result = await simulateCustomMods(pobBridge(), mods.map(String))
+      return {
+        ...result,
+        provenance: 'pob-sim',
+        note:
+          'Path of Building accepts modifier text it understands and silently ignores the rest. A result with no ' +
+          'stat changes usually means the wording was not recognised, not that the modifier is worthless.',
+      }
+    },
+  },
+
+  {
     name: 'poe2_explain_mechanic',
     title: 'Explain a PoE2 mechanic',
     description:
@@ -683,10 +832,12 @@ export const TOOLS: ToolDef[] = [
     name: 'poe2_health_check',
     title: 'Check server health',
     description:
-      'Report which data sets are loaded, whether a character is active, and whether poe.ninja is reachable. Use ' +
-      'this to distinguish a configuration problem from a genuinely empty result.',
+      'Report which data sets are loaded, whether a character is active, whether poe.ninja is reachable and whether ' +
+      'a live Path of Building is connected. Use this to distinguish a configuration problem from a genuinely empty ' +
+      'result.',
     inputSchema: {
       checkNetwork: z.boolean().optional().describe('Also probe poe.ninja. Default false.'),
+      checkPob: z.boolean().optional().describe('Also probe the local Path of Building bridge. Default false.'),
     },
     annotations: READ_ONLY_NETWORK,
     handler: async (args) => {
@@ -709,6 +860,14 @@ export const TOOLS: ToolDef[] = [
         }
       }
 
+      let pob: string | null = null
+      if (args.checkPob) {
+        const ping = await pobBridge().ping()
+        pob = ping
+          ? `connected on port ${pobBridge().port}${ping.build_loaded ? `, build "${ping.build_name ?? 'unnamed'}" open` : ', no build open'}`
+          : 'not running, or the addon is not installed'
+      }
+
       return {
         toolCount: TOOLS.length,
         passiveTree: tree,
@@ -716,6 +875,7 @@ export const TOOLS: ToolDef[] = [
           ? { loaded: true, name: loaded.analysis.identity.name, level: loaded.analysis.identity.level, source: loaded.source }
           : { loaded: false },
         poeNinja: network,
+        pathOfBuilding: pob,
       }
     },
   },

@@ -7,12 +7,16 @@
 
 export {
   NODE_KIND,
+  PobBridge,
+  PobBridgeError,
   decodePobExport,
   editPobTree,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
   resolveAllocation,
+  simulateCustomMods,
+  simulatePassiveNode,
   statSources,
   suggestNodesForStat,
   supportedStats,

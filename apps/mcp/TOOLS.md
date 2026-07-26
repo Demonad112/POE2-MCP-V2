@@ -5,7 +5,7 @@
 
 # Tools
 
-19 tools, all read-only.
+23 tools. 20 are read-only; 3 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`). Nothing here ever writes to a game account, a file, or poe.ninja.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -26,8 +26,12 @@
 | `poe2_analyze_item_mods` | Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and check every line against the modifier pool for that item’s class. | `slot`, `mods`, `baseType` |
 | `poe2_suggest_tree_routes` | Find the cheapest unallocated passive nodes granting a stat, with the real point cost and the exact route from the character’s current tree. | `stat`, `maxCost`, `notablesOnly`, `limit` |
 | `poe2_export_pob_with_tree` | Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to paste into Path of Building. | `allocate`, `deallocate`, `replace` |
+| `poe2_pob_status` | Report whether a live Path of Building instance is reachable, which build it has open, and what its engine currently computes. | `includeCalcs` |
+| `poe2_pob_load_character` ⚠️ | Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. | `allocate`, `deallocate` |
+| `poe2_pob_simulate_node` ⚠️ | Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree back. | `nodeId` |
+| `poe2_pob_simulate_mods` ⚠️ | Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, then restore what was there. | `mods` |
 | `poe2_explain_mechanic` | Explain a Path of Exile 2 mechanic, with the basis for each claim stated so it can be weighed. | `query` |
-| `poe2_health_check` | Report which data sets are loaded, whether a character is active, and whether poe.ninja is reachable. | `checkNetwork` |
+| `poe2_health_check` | Report which data sets are loaded, whether a character is active, whether poe.ninja is reachable and whether a live Path of Building is connected. | `checkNetwork`, `checkPob` |
 
 Every tool is a thin adapter over `@poe2/core`. The MCP server contains no
 analysis logic of its own, so it and the web app return the same numbers by
@@ -187,6 +191,39 @@ Apply passive tree changes to the loaded character’s Path of Building export a
 - `deallocate` *(optional)* — Node ids to remove.
 - `replace` *(optional)* — Replace the allocation outright. Takes precedence.
 
+### `poe2_pob_status`
+
+**Check the Path of Building bridge**
+
+Report whether a live Path of Building instance is reachable, which build it has open, and what its engine currently computes. Everything else in this server reads poe.ninja’s numbers; this reads Path of Building’s own, which is what makes what-if simulation possible. Call this before the simulation tools so a connection problem is not mistaken for a result.
+
+- `includeCalcs` *(optional)* — Also return the current computed stats. Default true.
+
+### `poe2_pob_load_character`
+
+**Send the loaded character to Path of Building**
+
+Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. Optionally applies passive tree changes on the way, letting a suggested route be tried directly. This replaces whatever build Path of Building currently has open — unsaved work there is lost.
+
+- `allocate` *(optional)* — Node ids to allocate before sending.
+- `deallocate` *(optional)* — Node ids to remove before sending.
+
+### `poe2_pob_simulate_node`
+
+**Measure what a passive node is worth**
+
+Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree back. The number comes from Path of Building’s own damage engine, so it is measured rather than estimated. Reports the real point cost, which is often more than one: Path of Building auto-paths, taking every node on the shortest route. Says explicitly whether the tree was restored — a failed restore leaves your Path of Building window modified.
+
+- `nodeId` — Passive node id to test. Get candidates from poe2_suggest_tree_routes.
+
+### `poe2_pob_simulate_mods`
+
+**Measure what a set of modifiers is worth**
+
+Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, then restore what was there. This answers "what would +40 maximum life on a ring do" without owning the ring, and prices a gear swap in real numbers. Write modifiers the way an item does: "+40 to maximum Life", "25% increased Physical Damage".
+
+- `mods` — Modifier lines, in item wording.
+
 ### `poe2_explain_mechanic`
 
 **Explain a PoE2 mechanic**
@@ -199,7 +236,8 @@ Explain a Path of Exile 2 mechanic, with the basis for each claim stated so it c
 
 **Check server health**
 
-Report which data sets are loaded, whether a character is active, and whether poe.ninja is reachable. Use this to distinguish a configuration problem from a genuinely empty result.
+Report which data sets are loaded, whether a character is active, whether poe.ninja is reachable and whether a live Path of Building is connected. Use this to distinguish a configuration problem from a genuinely empty result.
 
 - `checkNetwork` *(optional)* — Also probe poe.ninja. Default false.
+- `checkPob` *(optional)* — Also probe the local Path of Building bridge. Default false.
 

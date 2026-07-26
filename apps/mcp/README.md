@@ -72,8 +72,68 @@ readable message, so the model can correct itself rather than seeing an opaque
 protocol failure. Messages name the fix: an unknown stat lists the available
 stats, an unknown skill lists the character's skills.
 
-**Every tool is read-only.** Nothing here mutates a character, a file or a
-remote resource.
+**Only the bridge tools have effects.** Twenty of the twenty-three read data and
+nothing else. The three marked ⚠️ in TOOLS.md drive a Path of Building instance
+running on this machine. None of them touches a game account, a file, or
+poe.ninja.
+
+## The Path of Building bridge
+
+Everything else in this server reports what poe.ninja computed. The bridge
+reports what Path of Building computes — which is the only way to answer "what
+would this node be worth" with a measured number rather than an estimate.
+
+It works by driving the real application: apply a change, read the new figures,
+put it back. Two consequences follow, and both are handled rather than hoped
+away.
+
+**Path of Building auto-paths.** `AllocNode` takes the whole shortest route to a
+node, so asking for one node can spend several points. That is reported as the
+real cost — and it means the undo has to remove every node that appeared, not
+just the one requested.
+
+**A revert that fails leaves your build modified.** So it is verified, not
+assumed: the tree is re-read afterwards and compared against the original set.
+`reverted: false` means exactly that, with the offending node ids named. The
+custom-modifier box is treated the same way — whatever you already had in it is
+captured and restored, never cleared.
+
+### Setup
+
+1. Install the MCP Bridge addon into Path of Building (from
+   [Demonad112/poe2-mcp](https://github.com/Demonad112/poe2-mcp), `pob_addon/`).
+2. In the addon's config, **`MCPConfig` must be a global.** Declaring it `local`
+   stops the TCP server binding, and the failure is indistinguishable from Path
+   of Building not running at all.
+3. Start Path of Building and open a build.
+
+The bridge listens on `127.0.0.1:49085`, falling back through 49086-49088. It is
+localhost-only and nothing here changes that.
+
+### Verifying the bridge
+
+**This is the one part of the project not verified end to end.** The protocol is
+tested against a fake that reproduces the addon's real quirks — 19 tests in
+`packages/core/test/pob-bridge.test.ts` — and CI asserts that an absent Path of
+Building is reported as unreachable rather than as a zero. But no Path of
+Building runs in CI, so:
+
+```
+poe2_pob_status
+poe2_load_character       url: <your poe.ninja profile URL>
+poe2_pob_load_character
+poe2_pob_simulate_node    nodeId: <an id from poe2_suggest_tree_routes>
+```
+
+Three things are worth checking by eye, because a passing tool call does not
+prove them:
+
+- `poe2_pob_status` reports the build name you actually have open.
+- After `poe2_pob_simulate_node`, your Path of Building tree looks **exactly**
+  as it did before. The tool claims `reverted: true` only after re-reading the
+  tree, but the window in front of you is the real check.
+- The `cost.points` figure matches what Path of Building charges you if you
+  allocate that node by hand.
 
 ## What the tools will not tell you
 
@@ -95,9 +155,11 @@ remote resource.
 - **Ladder comparison.** Cut deliberately. poe.ninja's builds API ignores
   per-skill sort keys and filter parameters, and reports DPS only as a lossy
   display string.
-- **What-if simulation.** The Path of Building bridge is not built yet.
-  `poe2_export_pob_with_tree` hands PoB a modified tree so its own engine can
-  answer the question; nothing here simulates the result.
+- **Whether Path of Building understood a modifier.** `poe2_pob_simulate_mods`
+  passes text to PoB's custom-modifier box, which accepts what it recognises and
+  silently ignores the rest. A result with no stat changes usually means the
+  wording was not recognised. That is reported as a caveat on every result,
+  because it cannot be distinguished from a genuinely worthless modifier.
 
 ## Verifying
 
@@ -105,7 +167,7 @@ remote resource.
 node scripts/verify-mcp.mjs
 ```
 
-Spawns the real binary, completes the initialize handshake, lists tools, and
+Spawns the real binary, completes the initialise handshake, lists tools, and
 calls a representative set against the committed character — asserting the
 values that come back are the real ones (lowest max hit 3,808 chaos; Ice Shot
 109,859; armour 207 from Golem Tether; 3 allocation groups; a duplicate support

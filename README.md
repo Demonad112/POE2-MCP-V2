@@ -13,14 +13,20 @@ Two rules shape everything here:
 
 ## Status
 
-Analysis core, web app with a visual passive tree, and a 19-tool MCP server are
-all shipped. The Path of Building bridge for what-if simulation is not built yet.
+Analysis core, web app with a visual passive tree, and a 23-tool MCP server are
+all shipped, including the Path of Building bridge for what-if simulation.
+
+The bridge is the one part **not verified end to end**. Its protocol is tested
+against a fake that reproduces the addon's real behaviour, but no Path of
+Building runs in this project's CI or in the container it was written in.
+Verification against a live instance is
+[documented for you to run](apps/mcp/README.md#verifying-the-bridge).
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 89 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 143 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
-| `apps/mcp` | 19-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `apps/mcp` | 23-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 
@@ -104,8 +110,9 @@ different tool counts across its docs because that list was hand-maintained.
 ### DPS is tiered
 
 - **Tier 1 (default, authoritative)** — read `skills[i].dps[0]`.
-- **Tier 2 (simulation)** — drive a live Path of Building instance for what-ifs.
-  *Milestone 2.*
+- **Tier 2 (simulation)** — drive a live Path of Building instance for what-ifs:
+  apply a change, read what its engine makes of it, put it back. Measured, not
+  estimated. Requires PoB running locally with the MCP Bridge addon.
 - **Tier 3 (fallback)** — internal estimation, **always** labelled `estimate` and
   never silently mixed with Tier 1.
 
