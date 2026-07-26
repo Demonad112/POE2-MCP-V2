@@ -69,10 +69,74 @@ included here for interoperability in an unofficial fan tool. See the repository
 
 Two artifacts, two sources, because neither alone is sufficient.
 
-**`mods.json`** — affix ladders with real roll windows. Built by
+**`mod-tiers.json`** — the affix ladders. Built by `scripts/build-mod-tiers.mjs`
+from [RePoE-fork](https://repoe-fork.github.io/poe2/) `mods.min.json` and
+`base_items.min.json`, plus [pob-data](https://repoe-fork.github.io/pob-data/poe2/)
+`ModItem.min.json`. 2,585 craftable prefixes and suffixes across 594 ladders,
+plus 5,220 display-only mods (implicits, corrupted, unique) and 4,494 base names
+with their spawn tags. 2.0 MB raw, 0.26 MB gzipped.
+
+**`monster-stats.json`** — base monster damage by area level, waystone tier to
+area level, and Path of Building's boss reference levels. From RePoE
+`default_monster_stats` and `base_items`, plus pob-data `WorldAreas`. 4.6 KB raw,
+1.9 KB gzipped.
+
+### A second correction
+
+An earlier version of this artifact asserted that map tier is **not derivable**,
+because `WorldAreas` carries no tier field and its 158 endgame maps use only six
+distinct levels. That observation was right; the conclusion was wrong. I had
+looked in one place.
+
+Waystones are *items*. `base_items.json` lists `Waystone (Tier 1..16)` with item
+class `Map`, and their `drop_level` equals **64 + tier** for every tier from 2 to
+16. Tier 1 lists 58 — where the item begins dropping in the late campaign, not
+the map's own level — and 64 + 1 = 65, which WorldAreas independently confirms.
+
+Four separate corroborations:
+
+- `drop_level == 64 + tier` for all 15 of tiers 2–16
+- WorldAreas' real map levels 65 / 74 / 75 / 79 / 80 are exactly tiers 1 / 10 / 11 / 15 / 16
+- the highest waystone (T16) sits at 80, the highest map level in WorldAreas
+- pob-data `Misc.mapLevelLifeMult` is keyed 66–90, starting one above tier 1
+
+The build script fails if more than one tier ever stops matching the formula,
+rather than silently drifting.
+
+**Boss levels** are quoted from
+[PathOfBuildingCommunity/PathOfBuilding-PoE2](https://github.com/PathOfBuildingCommunity/PathOfBuilding-PoE2),
+`src/Modules/ConfigOptions.lua`, the `enemyLevel` tooltip: *"The maximum level
+for normal enemies and all bosses is 85"* and *"The default and minimum level for
+pinnacle bosses and uber pinnacle bosses is 82."* Those are prose constants, so
+they are written out with their source rather than scraped.
+
+**Still not modelled:** rare and unique monster damage multipliers, and map
+modifiers. So the headroom figure is an upper bound against a normal monster,
+never a verdict that a tier is safe.
+
+**`mods.json`** — affix names and roll windows, keyed by mod text. Built by
 `scripts/build-mods.mjs` from `data/game/mods/mods.json` joined to
 `stat_descriptions.json`, both from Demonad112/poe2-mcp. 12,601 mods across
-4,353 tier families; 3.6 MB raw, 0.39 MB gzipped.
+3.4 MB raw, 0.36 MB gzipped. **Carries no tier numbers** — see below.
+
+### Why tier numbers were removed from `mods.json`
+
+They were wrong, and the conclusion is stronger than the bug.
+
+The first grouping used `stat_id | generation_type`. That produced a "tier 1"
+rolling LOWER than the bottom tier in **375 of 1,103 families**, because
+unrelated ladders share a stat id: `base_resist_all_elements_%` as a SUFFIX
+covers both the real all-resistance ladder and the Hand Wraps
+"of Covering / of Sheathing / of Lining" ladder.
+
+The second attempt joined RePoE's published ladder key by mod id. Better — 87%
+correct — but the remaining 33 violations were all per-class and essence
+variants sharing a group with the generic ladder
+(`SpellCriticalStrikeChanceRing6`, `LightningResistancePenetrationEssence4`).
+
+That is not a bug to patch. **A tier is meaningless without an item class.** So
+tiers live in `mod-tiers.json`, resolved per base at query time, and this
+artifact carries roll windows and affix names only.
 
 **`mod-bases.json`** — which item class each modifier can appear on, and whether
 as prefix or suffix. Built by `scripts/build-mod-bases.mjs` from

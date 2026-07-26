@@ -8,7 +8,7 @@
     "//prebuild": "The core is consumed as built output, so it must exist before Next resolves @poe2/core. Building it here keeps `npm run build -w @poe2/web` working standalone.",
     "prebuild": "npm run build -w @poe2/core && npm run sync-data",
     "build": "next build",
-    "sync-data": "node -e \"require('fs').copyFileSync('../../packages/data/generated/passive-tree.json','public/passive-tree.json')\"",
+    "sync-data": "node scripts/sync-data.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint"

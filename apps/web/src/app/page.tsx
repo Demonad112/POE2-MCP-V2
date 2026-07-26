@@ -4,7 +4,9 @@ import { useCallback, useState } from 'react'
 import { analyzeCharacter, type Analysis } from '@poe2/core'
 import { DefensePanel } from '@/components/DefensePanel'
 import { DpsMatrix } from '@/components/DpsMatrix'
+import { GearDetail } from '@/components/GearDetail'
 import { GearPanel } from '@/components/GearPanel'
+import { Headroom } from '@/components/Headroom'
 import { ImportBar, type ImportResult } from '@/components/ImportBar'
 import { Reconciliation } from '@/components/Reconciliation'
 import { Recommendations } from '@/components/Recommendations'
@@ -116,9 +118,12 @@ export default function Home() {
             <div className="grid gap-4 lg:grid-cols-2">
               <DefensePanel d={analysis.defense} />
               <GearPanel items={analysis.items} passives={analysis.passives} />
+              <Headroom defense={analysis.defense} />
             </div>
 
             <DpsMatrix dps={analysis.dps} />
+
+            <GearDetail items={analysis.items} defense={analysis.defense} />
 
             <TreePanel allocation={analysis.passives} weakStats={weakStatsFrom(analysis)} />
 

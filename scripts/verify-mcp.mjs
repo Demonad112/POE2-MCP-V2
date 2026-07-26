@@ -181,8 +181,16 @@ console.log(`mechanics: "${mech.matches?.[0]?.title}"`)
 
 // --- mod database -----------------------------------------------------------
 const mods = await callTool('poe2_search_mods', { query: 'to Strength', kind: 'SUFFIX', limit: 3 })
-if (mods.results?.[0]?.affix !== 'of the Gods' || !mods.results[0].tier.startsWith('1 of')) {
+if (mods.results?.[0]?.affix !== 'of the Gods' || mods.results[0].levelRequirement !== 81) {
   failures.push(`mod search wrong: ${JSON.stringify(mods.results?.[0])}`)
+}
+// A text search has no item class, so it must NOT claim a tier — that was the
+// bug: global tier numbers were inverted in a third of families.
+if ('tier' in (mods.results?.[0] ?? {})) {
+  failures.push('text mod search is claiming a tier without an item class')
+}
+if (!/depends on the item class/.test(mods.note ?? '')) {
+  failures.push('mod search does not explain why no tier is given')
 }
 if (!Array.isArray(mods.results?.[0]?.canAppearOn)) {
   failures.push(`mod search did not report item-class compatibility: ${JSON.stringify(mods.results?.[0]?.canAppearOn)}`)
@@ -246,6 +254,58 @@ if (typeof target === 'number') {
 
 const emptyEdit = await callTool('poe2_export_pob_with_tree', {})
 if (!emptyEdit.error?.includes('at least one')) failures.push('empty pob edit was not rejected')
+
+// --- gear ---------------------------------------------------------------------
+const gear = await callTool('poe2_analyze_gear', { slot: 7 })
+const bow = gear.items?.[0]
+const phys = bow?.mods?.find((m) => m.id === 'LocalIncreasedPhysicalDamagePercent7')
+if (bow?.itemLevel !== 76 || phys?.tier !== 2 || phys?.tiers !== 8) {
+  failures.push(`gear tiers wrong: ${JSON.stringify({ ilvl: bow?.itemLevel, tier: phys?.tier, of: phys?.tiers })}`)
+}
+// T1 physical damage needs ilvl 82 and the bow is 76, so it is NOT reachable
+// here — that split is the whole point of the feature.
+if (phys?.upgrades?.[0]?.reachableOnThisItem !== false || phys?.upgrades?.[0]?.ilvl !== 82) {
+  failures.push(`gear should report T1 phys as needing a better base: ${JSON.stringify(phys?.upgrades?.[0])}`)
+}
+const dex = bow?.mods?.find((m) => m.id === 'Dexterity7')
+if (dex?.upgrades?.[0]?.reachableOnThisItem !== true) {
+  failures.push('gear should report T1 dexterity as reachable on this ilvl 76 bow')
+}
+console.log(`gear: ${bow?.name} ilvl ${bow?.itemLevel} — phys T${phys?.tier}/${phys?.tiers}, T1 needs ilvl ${phys?.upgrades?.[0]?.ilvl}`)
+
+const improve = await callTool('poe2_find_gear_improvements')
+const swap = improve.resistanceSwaps?.[0]
+if (!swap || !/above the cap/.test(swap.replace?.reason ?? '')) {
+  failures.push(`expected a resistance swap justified by overcap: ${JSON.stringify(swap).slice(0, 200)}`)
+}
+if (swap?.candidates?.[0]?.statId !== 'base_chaos_damage_resistance_%') {
+  failures.push(`swap should lead with chaos (57 short) not cold (1 short): ${swap?.candidates?.[0]?.statId}`)
+}
+console.log(
+  `gear swaps: ${improve.totals?.resistanceSwaps} found — replace "${swap?.replace?.text}" with T${swap?.candidates?.[0]?.tier} '${swap?.candidates?.[0]?.affix}'`,
+)
+
+const headroom = await callTool('poe2_survivability_headroom')
+if (headroom.lowestMaximumHit !== 3808 || headroom.tiers?.length !== 16) {
+  failures.push(`headroom wrong: ${JSON.stringify(headroom).slice(0, 220)}`)
+}
+// Tier maps to area level as 64 + tier, from the waystone item bases.
+const t16 = headroom.tiers?.find((t) => t.tier === 16)
+if (t16?.areaLevel !== 80 || t16?.baseMonsterHit !== 334) {
+  failures.push(`tier 16 should be area level 80 at 334 base damage: ${JSON.stringify(t16)}`)
+}
+// PoB's own reference levels.
+if (!headroom.bosses?.some((b) => b.level === 82) || !headroom.bosses?.some((b) => b.level === 85)) {
+  failures.push(`boss reference levels missing: ${JSON.stringify(headroom.bosses)}`)
+}
+// The base figure must never read as a safety verdict.
+if (!/upper bound, not a safety verdict/.test(headroom.caveats?.[0] ?? '')) {
+  failures.push('headroom does not qualify the base-monster figure')
+}
+console.log(
+  `headroom: ${headroom.lowestMaximumHit} ${headroom.lowestMaximumHitType} — comfortable to T${headroom.highestComfortableTier}, ` +
+    `${t16?.headroom}x at T16, ${headroom.bosses?.find((b) => b.level === 85)?.headroom}x vs a level-85 boss`,
+)
 
 // --- Path of Building bridge ------------------------------------------------
 // No Path of Building runs in CI, and that is the point: the interesting

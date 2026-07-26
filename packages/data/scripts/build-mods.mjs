@@ -5,6 +5,30 @@
  *   data/game/mods/mods.json                          16,788 mods, 19 MB
  *   data/game/stat_descriptions/stat_descriptions.json 10,716 entries, 5.8 MB
  *
+ * ## This artifact carries NO tier numbers, deliberately
+ *
+ * It used to. They were wrong, and the investigation is worth recording because
+ * the conclusion is stronger than the bug.
+ *
+ * First attempt grouped tier families by `stat_id | generation_type`. That was
+ * measurably wrong: 375 of 1,103 families produced a "tier 1" rolling LOWER than
+ * their bottom tier, because unrelated ladders share a stat id.
+ * `base_resist_all_elements_%` as a SUFFIX covers the real all-resistance ladder
+ * AND the Hand Wraps "of Covering / of Sheathing / of Lining" ladder.
+ *
+ * Second attempt joined RePoE's published ladder key by mod id. Better — 87%
+ * correct — but the remaining 33 violations were all things like
+ * `SpellCriticalStrikeChanceRing6` and `LightningResistancePenetrationEssence4`:
+ * per-item-class and essence variants sharing a group with the generic ladder.
+ *
+ * That is not a bug to patch. **A tier number is meaningless without an item
+ * class.** `ColdResistance` has 16 members game-wide and 8 on a ring; a global
+ * number would tell a ring wearer "T9 of 16" when they have T1 of 8.
+ *
+ * So tiers live in mod-tiers.json, resolved per base at query time, and this
+ * artifact carries roll windows and affix names only. Callers wanting a tier
+ * pass an item class.
+ *
  * ## What is derivable, and what is not
  *
  * **Derivable.** Each mod carries `mod_id`, an affix `display_name` ("of the
@@ -102,31 +126,19 @@ for (const mod of mods) {
   })
 }
 
-// --- tiers -------------------------------------------------------------------
-// A tier family is one stat id at one generation type. Tier 1 is the highest
-// level requirement, matching how the game numbers them.
-const families = new Map()
-for (const mod of out) {
-  const key = `${mod.stats[0].id}|${mod.kind}`
-  const list = families.get(key) ?? []
-  list.push(mod)
-  families.set(key, list)
-}
-for (const list of families.values()) {
-  list.sort((a, b) => b.level - a.level)
-  list.forEach((mod, index) => {
-    mod.tier = index + 1
-    mod.tiers = list.length
-  })
-}
+// No tier assignment here. See the header: a tier is only meaningful against an
+// item class, and mod-tiers.json owns that. Emitting a global number would be
+// wrong in a way that reads as authoritative.
 
 const artifact = {
   version: 1,
   generatedFrom: 'Demonad112/poe2-mcp data/game/mods/mods.json + stat_descriptions.json',
   modCount: out.length,
-  familyCount: families.size,
   limitation:
-    'Carries tiers and roll ranges only. Mod-to-item-class compatibility lives in the companion artifact mod-bases.json, built from RePoE-fork; type_key in this source does not index spawn_tags and must not be used for it.',
+    'Carries affix names and roll windows only. NO tier numbers: a tier is meaningless without an item class ' +
+    '(ColdResistance has 16 members game-wide and 8 on a ring), so tiers live in mod-tiers.json and are resolved ' +
+    'per base at query time. Mod-to-item-class compatibility lives in mod-bases.json; type_key in this source does ' +
+    'not index spawn_tags and must not be used for it.',
   mods: out,
 }
 
@@ -137,6 +149,6 @@ writeFileSync(outPath, json)
 console.log(`source mods       ${mods.length}`)
 console.log(`mods kept         ${out.length} (those with a resolvable stat template)`)
 console.log(`dropped stats     ${noTemplate} (stat_id absent from stat_descriptions)`)
-console.log(`tier families     ${families.size}`)
+console.log(`tiers             none — see mod-tiers.json, which resolves them per item class`)
 console.log(`size              ${(json.length / 1024 / 1024).toFixed(1)} MB raw · ${(gzipSync(json, { level: 9 }).length / 1024 / 1024).toFixed(2)} MB gzipped`)
 console.log(`written           ${outPath}`)

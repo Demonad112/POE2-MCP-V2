@@ -13,8 +13,9 @@ Two rules shape everything here:
 
 ## Status
 
-Analysis core, web app with a visual passive tree, and a 24-tool MCP server are
-all shipped, including the Path of Building bridge for what-if simulation.
+Analysis core, web app with a visual passive tree and per-item modifier
+analysis, and a 27-tool MCP server are all shipped, including the Path of
+Building bridge for what-if simulation.
 
 The bridge is the one part **not verified end to end**. Its protocol is tested
 against a fake that reproduces the addon's real behaviour, but no Path of
@@ -24,9 +25,9 @@ Verification against a live instance is
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 154 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 180 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
-| `apps/mcp` | 24-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `apps/mcp` | 27-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 
@@ -59,7 +60,7 @@ difference between "tanky" and "dies to one slam".
 
 ```bash
 npm install
-npm test          # 154 tests against a real captured character
+npm test          # 180 tests against a real captured character
 npm run build     # core -> dist, then the web static export
 npm run dev       # web app at http://localhost:3000
 ```
@@ -88,7 +89,8 @@ packages/core/           pure analysis — the single source of truth
   model/                 slots · passives · breakdowns · types
   defense/               0.5 mechanics incl. deflection and ward
   dps/                   Tier 1 reader over skills[].dps[0]
-  pob/                   export decode + PlayerStat reader
+  pob/                   export decode, PlayerStat reader, live bridge
+  gear/                  affix ladders per item class, waste and swaps
   gems/                  support gem parsing and validation
   tree/                  passive graph, path finding, allocation
   recommend/             ranked, quantified findings
@@ -125,6 +127,38 @@ export embedded in the payload. On the reference character PoB's `TotalDPS`
 reads 109859.05 against poe.ninja's 109,859 — they agree, which is what makes
 disagreement meaningful. When sources disagree the analyser **flags it** rather
 than silently preferring one.
+
+### Gear is read by mod id, not by matching text
+
+poe.ninja ships the actual modifier id on every equipped item —
+`itemData.mods.explicit[].id` is `LocalIncreasedPhysicalDamagePercent7`. Joined
+to the affix data from [RePoE-fork](https://repoe-fork.github.io/poe2/) and
+[pob-data](https://repoe-fork.github.io/pob-data/poe2/), that gives an exact
+tier, the roll's position in its window, and what better tiers exist — with no
+text matching anywhere.
+
+**T1 is the best tier**, and **a tier is meaningless without an item class.**
+`ColdResistance` has 16 members game-wide and 8 on a ring; a global number would
+tell a ring wearer "T9 of 16" when they have T1 of 8. Ladders are resolved
+against each item's own base, honouring the ordered, first-match-wins spawn
+weights that make most affixes class-specific.
+
+Upgrades are split by whether the item you already own can hold them. On the
+reference character T1 physical damage needs item level 82 and the bow is 76 —
+a new base — while T1 dexterity needs 74 and is achievable right now. Those are
+different actions at very different costs and are never merged.
+
+### Survivability is measured against real map tiers
+
+Waystone tier maps to area level as **64 + tier**, taken from the waystone item
+bases and corroborated four ways. Headroom is the character's smallest fatal hit
+over base monster damage at that level, reported per tier and against the boss
+levels Path of Building itself uses — 82 (pinnacle floor) and 85 (the ceiling for
+all enemies).
+
+The figure is against a **base** monster. Rare and unique multipliers and map
+modifiers are not in the data, so it is an upper bound, never a verdict that a
+tier is safe — and it says so next to the number rather than below the fold.
 
 ## Correctness rules
 
