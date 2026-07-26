@@ -14,6 +14,7 @@ export {
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
+  rankNodesByMeasuredGain,
   resolveAllocation,
   simulateCustomMods,
   simulatePassiveNode,

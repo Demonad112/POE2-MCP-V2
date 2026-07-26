@@ -72,8 +72,8 @@ readable message, so the model can correct itself rather than seeing an opaque
 protocol failure. Messages name the fix: an unknown stat lists the available
 stats, an unknown skill lists the character's skills.
 
-**Only the bridge tools have effects.** Twenty of the twenty-three read data and
-nothing else. The three marked ⚠️ in TOOLS.md drive a Path of Building instance
+**Only the bridge tools have effects.** Twenty of the twenty-four read data and
+nothing else. The four marked ⚠️ in TOOLS.md drive a Path of Building instance
 running on this machine. None of them touches a game account, a file, or
 poe.ninja.
 
@@ -98,6 +98,24 @@ assumed: the tree is re-read afterwards and compared against the original set.
 custom-modifier box is treated the same way — whatever you already had in it is
 captured and restored, never cleared.
 
+### Suggested versus measured
+
+`poe2_suggest_tree_routes` ranks nodes by what their text *says* they grant,
+divided by the points to reach them. That is honest, and it is shallow: a node
+printing "+12% increased Physical Damage" can be worth more or less than one
+printing "+15%", depending on everything else on the character. Only the damage
+engine knows which.
+
+`poe2_pob_rank_nodes` answers it. It simulates each candidate and ranks by the
+**measured** change per point — against any stat PoB reports, not just damage.
+Feed it node ids, or a stat to search the tree for.
+
+If a node cannot be restored part-way through, the run **stops**. Every later
+measurement would otherwise be taken against a tree that is no longer yours —
+numbers that look completely ordinary and are quietly wrong. It returns what it
+had, says which node dirtied the tree, and re-checks the baseline at the end to
+catch drift the individual reverts missed.
+
 ### Setup
 
 1. Install the MCP Bridge addon into Path of Building (from
@@ -113,9 +131,9 @@ localhost-only and nothing here changes that.
 ### Verifying the bridge
 
 **This is the one part of the project not verified end to end.** The protocol is
-tested against a fake that reproduces the addon's real quirks — 19 tests in
-`packages/core/test/pob-bridge.test.ts` — and CI asserts that an absent Path of
-Building is reported as unreachable rather than as a zero. But no Path of
+tested against a fake that reproduces the addon's real quirks — 30 tests across
+`pob-bridge.test.ts` and `pob-rank.test.ts` — and CI asserts that an absent Path
+of Building is reported as unreachable rather than as a zero. But no Path of
 Building runs in CI, so:
 
 ```
@@ -123,6 +141,7 @@ poe2_pob_status
 poe2_load_character       url: <your poe.ninja profile URL>
 poe2_pob_load_character
 poe2_pob_simulate_node    nodeId: <an id from poe2_suggest_tree_routes>
+poe2_pob_rank_nodes       forStat: chaosResistance   metric: ChaosResist
 ```
 
 Three things are worth checking by eye, because a passing tool call does not

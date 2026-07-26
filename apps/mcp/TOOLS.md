@@ -5,7 +5,7 @@
 
 # Tools
 
-23 tools. 20 are read-only; 3 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`). Nothing here ever writes to a game account, a file, or poe.ninja.
+24 tools. 20 are read-only; 4 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`, `poe2_pob_rank_nodes`). Nothing here ever writes to a game account, a file, or poe.ninja.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -30,6 +30,7 @@
 | `poe2_pob_load_character` ⚠️ | Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. | `allocate`, `deallocate` |
 | `poe2_pob_simulate_node` ⚠️ | Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree back. | `nodeId` |
 | `poe2_pob_simulate_mods` ⚠️ | Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, then restore what was there. | `mods` |
+| `poe2_pob_rank_nodes` ⚠️ | Simulate each candidate passive node in the running Path of Building and rank them by the measured change per point spent. | `nodeIds`, `forStat`, `metric`, `maxCandidates`, `maxCost` |
 | `poe2_explain_mechanic` | Explain a Path of Exile 2 mechanic, with the basis for each claim stated so it can be weighed. | `query` |
 | `poe2_health_check` | Report which data sets are loaded, whether a character is active, whether poe.ninja is reachable and whether a live Path of Building is connected. | `checkNetwork`, `checkPob` |
 
@@ -223,6 +224,18 @@ Allocate a passive node in the running Path of Building, measure every stat that
 Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, then restore what was there. This answers "what would +40 maximum life on a ring do" without owning the ring, and prices a gear swap in real numbers. Write modifiers the way an item does: "+40 to maximum Life", "25% increased Physical Damage".
 
 - `mods` — Modifier lines, in item wording.
+
+### `poe2_pob_rank_nodes`
+
+**Rank passive nodes by measured value**
+
+Simulate each candidate passive node in the running Path of Building and rank them by the measured change per point spent. This is the difference between a suggestion and an answer: poe2_suggest_tree_routes ranks by what a node’s text says it grants, which cannot know what that is worth on this particular build. Rank by any stat Path of Building reports — TotalDPS by default, or Life, Armour, EnergyShield and so on. Candidates come either from explicit node ids, or from a stat to search the tree for. The tree is restored after each node, and the run stops rather than continue measuring against a build it could not restore.
+
+- `nodeIds` *(optional)* — Node ids to test. Use this or forStat.
+- `forStat` *(optional)* — Find candidates granting this stat, e.g. "chaosResistance". Uses the same search as poe2_suggest_tree_routes.
+- `metric` *(optional)* — Path of Building stat to rank by. Default TotalDPS.
+- `maxCandidates` *(optional)* — Cap the number simulated. Default 6; each one costs a round trip.
+- `maxCost` *(optional)* — With forStat: the most passive points a candidate may cost to reach. Default 4.
 
 ### `poe2_explain_mechanic`
 

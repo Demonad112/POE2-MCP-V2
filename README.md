@@ -13,7 +13,7 @@ Two rules shape everything here:
 
 ## Status
 
-Analysis core, web app with a visual passive tree, and a 23-tool MCP server are
+Analysis core, web app with a visual passive tree, and a 24-tool MCP server are
 all shipped, including the Path of Building bridge for what-if simulation.
 
 The bridge is the one part **not verified end to end**. Its protocol is tested
@@ -24,9 +24,9 @@ Verification against a live instance is
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 143 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 154 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
-| `apps/mcp` | 23-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `apps/mcp` | 24-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 
@@ -59,7 +59,7 @@ difference between "tanky" and "dies to one slam".
 
 ```bash
 npm install
-npm test          # 63 tests against a real captured character
+npm test          # 154 tests against a real captured character
 npm run build     # core -> dist, then the web static export
 npm run dev       # web app at http://localhost:3000
 ```

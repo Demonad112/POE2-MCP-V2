@@ -15,6 +15,7 @@ export * from './dps/index.js'
 export * from './pob/export.js'
 export * from './pob/build.js'
 export * from './pob/bridge.js'
+export * from './pob/rank.js'
 export * from './recommend/index.js'
 export * from './reconcile/index.js'
 

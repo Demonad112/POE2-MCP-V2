@@ -19,6 +19,7 @@ import {
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
+  rankNodesByMeasuredGain,
   resolveAllocation,
   simulateCustomMods,
   simulatePassiveNode,
@@ -801,6 +802,65 @@ export const TOOLS: ToolDef[] = [
         note:
           'Path of Building accepts modifier text it understands and silently ignores the rest. A result with no ' +
           'stat changes usually means the wording was not recognised, not that the modifier is worthless.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_rank_nodes',
+    title: 'Rank passive nodes by measured value',
+    description:
+      'Simulate each candidate passive node in the running Path of Building and rank them by the measured change per ' +
+      'point spent. This is the difference between a suggestion and an answer: poe2_suggest_tree_routes ranks by what ' +
+      'a node’s text says it grants, which cannot know what that is worth on this particular build. Rank by any stat ' +
+      'Path of Building reports — TotalDPS by default, or Life, Armour, EnergyShield and so on. Candidates come ' +
+      'either from explicit node ids, or from a stat to search the tree for. The tree is restored after each node, ' +
+      'and the run stops rather than continue measuring against a build it could not restore.',
+    inputSchema: {
+      nodeIds: z.array(z.number().int()).optional().describe('Node ids to test. Use this or forStat.'),
+      forStat: z
+        .string()
+        .optional()
+        .describe('Find candidates granting this stat, e.g. "chaosResistance". Uses the same search as poe2_suggest_tree_routes.'),
+      metric: z.string().optional().describe('Path of Building stat to rank by. Default TotalDPS.'),
+      maxCandidates: z.number().int().optional().describe('Cap the number simulated. Default 6; each one costs a round trip.'),
+      maxCost: z.number().int().optional().describe('With forStat: the most passive points a candidate may cost to reach. Default 4.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const tree = passiveTree()
+      const limit = Math.max(1, Number(args.maxCandidates ?? 6))
+
+      let candidates: { id: number; name?: string }[]
+      if (Array.isArray(args.nodeIds) && args.nodeIds.length) {
+        candidates = (args.nodeIds as number[]).map((id) => ({ id, name: tree.node(id)?.name ?? undefined }))
+      } else if (args.forStat) {
+        const { passives } = requireCharacter().analysis
+        const suggestions = suggestNodesForStat(tree, passives.live, String(args.forStat), {
+          maxCost: Number(args.maxCost ?? 4),
+          limit,
+        })
+        if (!suggestions.length) {
+          throw new Error(
+            `No reachable nodes grant "${args.forStat}" within the cost limit. Try a higher maxCost, or check the ` +
+              'stat name against poe2_suggest_tree_routes.',
+          )
+        }
+        candidates = suggestions.map((s) => ({ id: s.node.id, name: s.node.name }))
+      } else {
+        throw new Error('Provide either nodeIds, or forStat to search the tree for candidates.')
+      }
+
+      const report = await rankNodesByMeasuredGain(pobBridge(), candidates.slice(0, limit), {
+        metric: args.metric ? String(args.metric) : undefined,
+      })
+
+      return {
+        ...report,
+        provenance: 'pob-sim',
+        note:
+          'Measured by Path of Building’s own engine on this build, not estimated. Cost includes any points the ' +
+          'auto-path spent reaching the node.',
       }
     },
   },
