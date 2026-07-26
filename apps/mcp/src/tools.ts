@@ -14,16 +14,19 @@ import { z } from 'zod'
 import {
   NODE_KIND,
   decodePobExport,
+  editPobTree,
   findMechanicSafe,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
   resolveAllocation,
   statSources,
+  suggestNodesForStat,
+  supportedStats,
   validateByName,
   validateSetup,
 } from './deps.js'
-import { client, loadCharacter, loadedCharacter, passiveTree, requireCharacter } from './state.js'
+import { client, loadCharacter, loadedCharacter, modDatabase, passiveTree, requireCharacter } from './state.js'
 
 export interface ToolDef {
   name: string
@@ -452,6 +455,190 @@ export const TOOLS: ToolDef[] = [
         summary: { agree: r.matches, minor: r.minor, major: r.major, unverifiable: r.unresolved },
         disagreements: r.checks.filter((c) => c.severity === 'major' || c.severity === 'minor'),
         unverifiable: r.checks.filter((c) => c.severity === 'unresolved'),
+      }
+    },
+  },
+
+  {
+    name: 'poe2_search_mods',
+    title: 'Search item modifiers',
+    description:
+      'Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, ' +
+      'affix names and level requirements. Tier 1 is the best. Useful for judging what an item could roll, or what a ' +
+      'craft is aiming at. Does NOT cover which item bases a mod can appear on — that linkage is absent from the ' +
+      'available data and is not guessed at.',
+    inputSchema: {
+      query: z.string().describe('Stat text or affix name, e.g. "to Strength", "Lightning Resistance", "of the Gods".'),
+      kind: z
+        .enum(['PREFIX', 'SUFFIX', 'IMPLICIT', 'CORRUPTED'])
+        .optional()
+        .describe('Restrict to one modifier kind.'),
+      limit: z.number().int().min(1).max(50).optional().describe('Maximum results. Default 15.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const db = modDatabase()
+      const opts: { kind?: string; limit?: number } = { limit: Number(args.limit ?? 15) }
+      if (typeof args.kind === 'string') opts.kind = args.kind
+      const results = db.search(String(args.query), opts)
+
+      if (!results.length) {
+        throw new Error(
+          `No modifier matches "${args.query}". Search matches affix names and rendered stat text, e.g. "to Strength" or "increased Attack Speed".`,
+        )
+      }
+      return {
+        results: results.map((m) => ({
+          id: m.id,
+          affix: m.affix,
+          kind: m.kind,
+          tier: `${m.tier} of ${m.tiers}`,
+          levelRequirement: m.level,
+          rolls: m.stats.map((s) => ({ stat: s.id, min: s.textMin, max: s.text })),
+        })),
+        limitation: db.limitation,
+      }
+    },
+  },
+
+  {
+    name: 'poe2_analyze_item_mods',
+    title: 'Analyze an item’s modifier rolls',
+    description:
+      'Place each of an item’s modifier rolls in its tier and show how far it sits from the best possible roll. ' +
+      'Analyses an equipped item on the loaded character by slot, or arbitrary mod lines passed directly. Lines with ' +
+      'no counterpart in the modifier table are reported as unmatched rather than guessed at — runes, unique-only ' +
+      'modifiers and undescribed stats all fall in that category. This is tier analysis, NOT a legality check: ' +
+      'whether a mod may appear on a given base is not derivable from the available data.',
+    inputSchema: {
+      slot: z
+        .number()
+        .int()
+        .optional()
+        .describe('Equipment slot id on the loaded character: 1 helmet, 2 gloves, 3 body, 4 amulet, 5 boots, 6 off hand, 7 main hand, 8/9 rings, 11 belt, 15/16 swap weapons.'),
+      mods: z.array(z.string()).optional().describe('Modifier lines to analyse directly, instead of an equipped item.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const db = modDatabase()
+
+      if (Array.isArray(args.mods) && args.mods.length) {
+        return { source: 'provided lines', ...db.assessAll(args.mods as string[]) }
+      }
+
+      const { analysis } = requireCharacter()
+      if (typeof args.slot !== 'number') {
+        return {
+          note: 'Pass a slot id to analyse an equipped item, or mods to analyse lines directly.',
+          equipped: analysis.items.map((i) => ({ slot: i.slotId, label: i.slotLabel, name: i.name, active: i.active })),
+        }
+      }
+
+      const item = analysis.items.find((i) => i.slotId === args.slot)
+      if (!item) {
+        throw new Error(
+          `Nothing equipped in slot ${args.slot}. Occupied slots: ${analysis.items.map((i) => `${i.slotId} (${i.slotLabel})`).join(', ')}.`,
+        )
+      }
+      return {
+        item: { slot: item.slotId, slotLabel: item.slotLabel, name: item.name, baseType: item.baseType, itemLevel: item.itemLevel, active: item.active },
+        ...db.assessAll(item.mods),
+      }
+    },
+  },
+
+  {
+    name: 'poe2_suggest_tree_routes',
+    title: 'Suggest passive routes for a stat',
+    description:
+      'Find the cheapest unallocated passive nodes granting a stat, with the real point cost and the exact route from ' +
+      'the character’s current tree. Ranked by value per point. This reports what a node costs and what it prints — ' +
+      'it does not claim a node is the right choice, since that depends on where the build is heading.',
+    inputSchema: {
+      stat: z.string().describe('Stat key, e.g. chaosResistance, coldResistance, life, energyShield, armour, evasionRating.'),
+      maxCost: z.number().int().min(1).max(10).optional().describe('Maximum passive points to spend. Default 4.'),
+      notablesOnly: z.boolean().optional().describe('Only notables and keystones. Default false.'),
+      limit: z.number().int().min(1).max(20).optional().describe('Maximum routes. Default 5.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const { analysis } = requireCharacter()
+      const stat = String(args.stat)
+
+      const options: { maxCost: number; limit: number; notablesOnly?: boolean } = {
+        maxCost: Number(args.maxCost ?? 4),
+        limit: Number(args.limit ?? 5),
+      }
+      if (typeof args.notablesOnly === 'boolean') options.notablesOnly = args.notablesOnly
+
+      const routes = suggestNodesForStat(passiveTree(), analysis.passives.live, stat, options)
+
+      if (!routes.length) {
+        const supported = supportedStats()
+        if (!supported.includes(stat)) {
+          throw new Error(`"${stat}" is not a stat this can search for. Supported: ${supported.join(', ')}.`)
+        }
+        return {
+          stat,
+          routes: [],
+          note: `No unallocated node granting ${stat} is within ${options.maxCost} passive points. Raise maxCost to widen the search, bearing in mind that a distant route is rarely good advice.`,
+        }
+      }
+
+      return {
+        stat,
+        routes: routes.map((r) => ({
+          node: { id: r.node.id, name: r.node.name, stats: r.node.stats },
+          cost: r.cost,
+          grants: r.matchedStat,
+          valuePerPoint: r.valuePerPoint,
+          path: r.path.map((n) => ({ id: n.id, name: n.name })),
+        })),
+      }
+    },
+  },
+
+  {
+    name: 'poe2_export_pob_with_tree',
+    title: 'Export a Path of Building code with a modified tree',
+    description:
+      'Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to ' +
+      'paste into Path of Building. Only the tree is rewritten; items, gems, config and calc settings are preserved ' +
+      'byte-for-byte, because this project does not model them. Combine with poe2_suggest_tree_routes to try a route ' +
+      'out in Path of Building’s own engine.',
+    inputSchema: {
+      allocate: z.array(z.number().int()).optional().describe('Node ids to allocate, on top of the current tree.'),
+      deallocate: z.array(z.number().int()).optional().describe('Node ids to remove.'),
+      replace: z.array(z.number().int()).optional().describe('Replace the allocation outright. Takes precedence.'),
+    },
+    annotations: { ...READ_ONLY, idempotentHint: false },
+    handler: async (args) => {
+      const { model } = requireCharacter()
+      const code = model.pathOfBuildingExport
+      if (!code) {
+        throw new Error(
+          'poe.ninja did not attach a Path of Building export to this character, so there is nothing to modify.',
+        )
+      }
+
+      const edit: { allocate?: number[]; deallocate?: number[]; replace?: number[] } = {}
+      if (Array.isArray(args.allocate)) edit.allocate = args.allocate as number[]
+      if (Array.isArray(args.deallocate)) edit.deallocate = args.deallocate as number[]
+      if (Array.isArray(args.replace)) edit.replace = args.replace as number[]
+      if (!edit.allocate?.length && !edit.deallocate?.length && !edit.replace) {
+        throw new Error('Provide at least one of allocate, deallocate or replace.')
+      }
+
+      const tree = passiveTree()
+      const result = await editPobTree(code, edit)
+
+      return {
+        code: result.code,
+        added: result.added.map((id) => ({ id, name: tree.node(id)?.name ?? null })),
+        removed: result.removed.map((id) => ({ id, name: tree.node(id)?.name ?? null })),
+        nodeCount: { before: result.before.treeNodeIds.length, after: result.after.treeNodeIds.length },
+        warnings: result.warnings,
+        note: 'Only the passive tree was changed. Paste this into Path of Building to see what its engine makes of it.',
       }
     },
   },

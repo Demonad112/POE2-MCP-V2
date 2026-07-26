@@ -13,11 +13,13 @@ import { fileURLToPath } from 'node:url'
 import {
   analyzeCharacter,
   NinjaClient,
+  ModDatabase,
   PassiveTree,
   indexSupports,
   parseAllSetups,
   type Analysis,
   type CharModel,
+  type ModData,
   type PassiveTreeData,
   type SkillSetup,
   type SupportGem,
@@ -47,6 +49,7 @@ export interface LoadedCharacter {
 
 let current: LoadedCharacter | null = null
 let tree: PassiveTree | null = null
+let mods: ModDatabase | null = null
 
 export const client = new NinjaClient({
   // Server-side, so poe.ninja is reachable directly — no proxy needed. The
@@ -78,4 +81,16 @@ export function passiveTree(): PassiveTree {
     tree = new PassiveTree(data)
   }
   return tree
+}
+
+/**
+ * The mod artifact, read once and kept. 3.6 MB, so it is loaded on first use
+ * rather than at startup — most sessions never touch it.
+ */
+export function modDatabase(): ModDatabase {
+  if (!mods) {
+    const data = JSON.parse(readFileSync(join(dataDir, 'mods.json'), 'utf8')) as ModData
+    mods = new ModDatabase(data)
+  }
+  return mods
 }

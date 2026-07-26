@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PassiveAllocation, PassiveTree, TreeNode } from '@poe2/core'
-import { resolveAllocation } from '@poe2/core'
+import { resolveAllocation, suggestNodesForStat, supportedStats } from '@poe2/core'
 import { Tag } from '../ui'
 import { clampScale, extentOf, fitExtent, zoomAt, type Viewport } from './geometry'
 import { hitTest, renderTree, type TreePalette } from './render'
@@ -26,15 +26,21 @@ function readPalette(el: HTMLElement): TreePalette {
   }
 }
 
+export interface WeakStat {
+  key: string
+  label: string
+  shortfall: string
+}
+
 export interface PassiveTreeViewProps {
   tree: PassiveTree
   allocation: PassiveAllocation
-  /** Node ids to glow — e.g. a route the engine suggests. */
-  highlighted?: number[]
+  /** Stats the analysis found short, best first. Drives the route picker. */
+  weakStats?: WeakStat[]
   className?: string
 }
 
-export function PassiveTreeView({ tree, allocation, highlighted = [], className = '' }: PassiveTreeViewProps) {
+export function PassiveTreeView({ tree, allocation, weakStats = [], className = '' }: PassiveTreeViewProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -51,7 +57,29 @@ export function PassiveTreeView({ tree, allocation, highlighted = [], className 
     const inactive = allocation.activeSet === 2 ? allocation.set1 : allocation.set2
     return new Set(inactive.filter((id) => !activeIds.has(id)))
   }, [allocation, activeIds])
-  const highlightIds = useMemo(() => new Set(highlighted), [highlighted])
+  /**
+   * Routes to nodes granting a stat the build is short on. Computed on demand
+   * rather than up front: it walks the whole 4,975-node tree per stat.
+   */
+  const [routeStat, setRouteStat] = useState<string | null>(null)
+  const [routeIndex, setRouteIndex] = useState(0)
+
+  const routes = useMemo(() => {
+    if (!routeStat) return []
+    return suggestNodesForStat(tree, allocation.live, routeStat, { maxCost: 4, limit: 5 })
+  }, [tree, allocation.live, routeStat])
+
+  /** Only offer stats this module can actually search for. */
+  const routable = useMemo(() => {
+    const supported = new Set(supportedStats())
+    return weakStats.filter((s) => supported.has(s.key))
+  }, [weakStats])
+
+  const activeRoute = routes[routeIndex] ?? null
+  const highlightIds = useMemo(
+    () => new Set(activeRoute ? activeRoute.path.map((n) => n.id) : []),
+    [activeRoute],
+  )
 
   /** The character's own ascendancy, so other classes' wheels stay hidden. */
   const ownAscendancy = resolved.ascendancy[0]?.ascendancy ?? null
@@ -79,6 +107,13 @@ export function PassiveTreeView({ tree, allocation, highlighted = [], className 
   useEffect(() => {
     if (viewport === null) fitToAllocation()
   }, [viewport, fitToAllocation])
+
+  // Frame a chosen route: a glowing path off-screen helps nobody.
+  useEffect(() => {
+    if (!activeRoute || !size.width || !size.height) return
+    const extent = extentOf(activeRoute.path, 1400)
+    if (extent) setViewport(fitExtent(extent, size.width, size.height))
+  }, [activeRoute, size.width, size.height])
 
   // --- painting -------------------------------------------------------------
   useEffect(() => {
@@ -320,6 +355,67 @@ export function PassiveTreeView({ tree, allocation, highlighted = [], className 
           </div>
         ) : null}
       </div>
+
+      {routable.length ? (
+        <div className="mt-3 rounded-lg border border-line bg-surface-sunken p-3">
+          <h3 className="text-xs font-medium tracking-wide text-ink-dim uppercase">Routes to what you’re short on</h3>
+          <p className="mt-1 text-[11px] leading-relaxed text-ink-mute">
+            Cheapest unallocated nodes granting the stat, with the real point cost. Ranked by value per point — not a
+            claim that a node is the right choice, only what it costs to reach.
+          </p>
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {routable.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => {
+                  setRouteStat(routeStat === s.key ? null : s.key)
+                  setRouteIndex(0)
+                }}
+                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                  routeStat === s.key
+                    ? 'border-[var(--dmg-cold)] text-[var(--dmg-cold)]'
+                    : 'border-line text-ink-dim hover:text-ink'
+                }`}
+              >
+                {s.label} <span className="text-ink-mute">{s.shortfall}</span>
+              </button>
+            ))}
+          </div>
+
+          {routeStat && !routes.length ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-warn">
+              No unallocated node granting that stat is within 4 passive points of the current tree. Widening the
+              search would return routes too expensive to be useful advice.
+            </p>
+          ) : null}
+
+          {routes.length ? (
+            <ul className="mt-2 space-y-1">
+              {routes.map((r, i) => (
+                <li key={r.node.id}>
+                  <button
+                    type="button"
+                    onClick={() => setRouteIndex(i)}
+                    className={`flex w-full items-baseline justify-between gap-3 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                      i === routeIndex ? 'bg-surface-raised text-ink' : 'text-ink-dim hover:text-ink'
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {r.node.name}
+                      <span className="ml-1.5 text-[11px] text-ink-mute">{r.matchedStat}</span>
+                    </span>
+                    <span className="tabular shrink-0 text-[11px] text-accent">
+                      {r.cost} {r.cost === 1 ? 'point' : 'points'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
         <label className="flex items-center gap-1.5 text-[11px] text-ink-dim">

@@ -33,7 +33,17 @@ function loadTree(): Promise<PassiveTree> {
   return inFlight
 }
 
-export function TreePanel({ allocation, highlighted }: { allocation: PassiveAllocation; highlighted?: number[] }) {
+export function TreePanel({
+  allocation,
+  weakStats = [],
+}: {
+  allocation: PassiveAllocation
+  /**
+   * Stats the analysis found the build short on, best first. Drives the
+   * route-suggestion picker — see PassiveTreeView.
+   */
+  weakStats?: Array<{ key: string; label: string; shortfall: string }>
+}) {
   const [tree, setTree] = useState<PassiveTree | null>(cached)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,7 +69,7 @@ export function TreePanel({ allocation, highlighted }: { allocation: PassiveAllo
           page is unaffected.
         </p>
       ) : tree ? (
-        <PassiveTreeView tree={tree} allocation={allocation} highlighted={highlighted ?? []} />
+        <PassiveTreeView tree={tree} allocation={allocation} weakStats={weakStats} />
       ) : (
         <div className="skeleton h-[26rem] w-full rounded-lg sm:h-[34rem]" aria-busy="true">
           <span className="sr-only">Loading passive tree…</span>

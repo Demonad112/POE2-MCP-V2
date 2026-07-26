@@ -13,6 +13,7 @@ export * from './model/breakdowns.js'
 export * from './defense/index.js'
 export * from './dps/index.js'
 export * from './pob/export.js'
+export * from './pob/build.js'
 export * from './recommend/index.js'
 export * from './reconcile/index.js'
 
@@ -20,6 +21,8 @@ export * from './ninja/url.js'
 export * from './ninja/client.js'
 
 export * from './gems/index.js'
+export * from './mods/index.js'
 export * from './tree/index.js'
+export * from './tree/suggest.js'
 
 export * from './analyze.js'

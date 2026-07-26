@@ -13,14 +13,14 @@ Two rules shape everything here:
 
 ## Status
 
-Analysis core, web app with a visual passive tree, and a 15-tool MCP server are
+Analysis core, web app with a visual passive tree, and a 19-tool MCP server are
 all shipped. The Path of Building bridge for what-if simulation is not built yet.
 
 | | |
 |---|---|
 | `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 89 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
-| `apps/mcp` | 15-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `apps/mcp` | 19-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 

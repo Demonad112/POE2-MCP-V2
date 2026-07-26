@@ -8,11 +8,14 @@
 export {
   NODE_KIND,
   decodePobExport,
+  editPobTree,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
   resolveAllocation,
   statSources,
+  suggestNodesForStat,
+  supportedStats,
   validateByName,
   validateSetup,
 } from '@poe2/core'

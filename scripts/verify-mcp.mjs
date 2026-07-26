@@ -83,7 +83,7 @@ console.log(`handshake: ${init.result?.serverInfo?.name} v${init.result?.serverI
 const list = await send('tools/list', {})
 const tools = list.result?.tools ?? []
 console.log(`tools/list: ${tools.length} tools`)
-if (tools.length < 14) failures.push(`expected at least 14 tools, got ${tools.length}`)
+if (tools.length < 18) failures.push(`expected at least 14 tools, got ${tools.length}`)
 for (const tool of tools) {
   if (!tool.description || tool.description.length < 40) failures.push(`${tool.name} has a thin description`)
   if (!tool.name.startsWith('poe2_')) failures.push(`${tool.name} is missing the poe2_ prefix`)
@@ -178,6 +178,50 @@ console.log(`recommendations: ${ids.length} findings — ${ids.slice(0, 3).join(
 const mech = await callTool('poe2_explain_mechanic', { query: 'armour' })
 if (!mech.matches?.[0]?.basis) failures.push('mechanic entry lacks a stated basis')
 console.log(`mechanics: "${mech.matches?.[0]?.title}"`)
+
+// --- mod database -----------------------------------------------------------
+const mods = await callTool('poe2_search_mods', { query: 'to Strength', kind: 'SUFFIX', limit: 3 })
+if (mods.results?.[0]?.affix !== 'of the Gods' || !mods.results[0].tier.startsWith('1 of')) {
+  failures.push(`mod search wrong: ${JSON.stringify(mods.results?.[0])}`)
+}
+if (!mods.limitation?.includes('no mod-to-item-base compatibility')) {
+  failures.push('mod search did not state that base compatibility is uncovered')
+}
+console.log(`mods: top strength suffix is "${mods.results?.[0]?.affix}" tier ${mods.results?.[0]?.tier}`)
+
+const itemMods = await callTool('poe2_analyze_item_mods', { slot: 11 })
+if (itemMods.item?.name !== 'Golem Tether' || typeof itemMods.matched !== 'number') {
+  failures.push(`item mod analysis wrong: ${JSON.stringify(itemMods.item)}`)
+}
+console.log(`item mods: ${itemMods.item?.name} — ${itemMods.matched} matched, ${itemMods.unmatched} unmatched`)
+
+// --- tree routes ------------------------------------------------------------
+const routes = await callTool('poe2_suggest_tree_routes', { stat: 'chaosResistance', maxCost: 4 })
+if (!routes.routes?.length) {
+  failures.push(`no chaos resistance routes found: ${JSON.stringify(routes).slice(0, 200)}`)
+} else {
+  const first = routes.routes[0]
+  if (first.path.length !== first.cost) failures.push('route path length disagrees with its stated cost')
+  if (!/chaos resistance/i.test(first.grants)) failures.push(`route grants wrong stat: ${first.grants}`)
+  console.log(`routes: "${first.node.name}" for ${first.cost} points — ${first.grants}`)
+}
+
+const badStat = await callTool('poe2_suggest_tree_routes', { stat: 'notAStat' })
+if (!badStat.error?.includes('Supported')) failures.push('unknown stat did not list supported stats')
+
+// --- PoB export with a modified tree ---------------------------------------
+const target = routes.routes?.[0]?.path?.[0]?.id
+if (typeof target === 'number') {
+  const exported = await callTool('poe2_export_pob_with_tree', { allocate: [target] })
+  if (!exported.code || exported.nodeCount?.after !== exported.nodeCount?.before + 1) {
+    failures.push(`pob export wrong: ${JSON.stringify(exported).slice(0, 200)}`)
+  }
+  if (exported.added?.[0]?.id !== target) failures.push('pob export did not report the node it added')
+  console.log(`pob export: added "${exported.added?.[0]?.name}", ${exported.nodeCount?.before} -> ${exported.nodeCount?.after} nodes`)
+}
+
+const emptyEdit = await callTool('poe2_export_pob_with_tree', {})
+if (!emptyEdit.error?.includes('at least one')) failures.push('empty pob edit was not rejected')
 
 // --- health -----------------------------------------------------------------
 const health = await callTool('poe2_health_check')

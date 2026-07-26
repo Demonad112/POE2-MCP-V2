@@ -82,12 +82,21 @@ remote resource.
   supports whose tags share nothing with the skill. Nothing else is claimed,
   because nothing else is derivable: the extracted gem databases carry no usable
   constraints, and inventing rules is exactly the failure this project avoids.
+- **Whether a modifier can roll on a given item base.** `poe2_search_mods` and
+  `poe2_analyze_item_mods` cover tiers and roll ranges, which are real. Base
+  compatibility is not in the data: `type_key` looks like an index into
+  spawn_tags and is not — following it maps attack speed to belts only, and flat
+  energy shield to bows and to non-item tags like `Claw_onhit_audio`.
+- **Whether a passive node is the *right* choice.**
+  `poe2_suggest_tree_routes` reports what a node costs and what it prints,
+  ranked by value per point. Which node suits a build depends on where that
+  build is heading, and that is not something this can measure.
 - **Ladder comparison.** Cut deliberately. poe.ninja's builds API ignores
   per-skill sort keys and filter parameters, and reports DPS only as a lossy
   display string.
 - **What-if simulation.** The Path of Building bridge is not built yet.
-  `poe2_import_pob` reads a build's own computed stats, which is a second
-  opinion, not a simulation.
+  `poe2_export_pob_with_tree` hands PoB a modified tree so its own engine can
+  answer the question; nothing here simulates the result.
 
 ## Verifying
 
