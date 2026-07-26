@@ -28,7 +28,7 @@
 | `poe2_export_pob_with_tree` | Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to paste into Path of Building. | `allocate`, `deallocate`, `replace` |
 | `poe2_analyze_gear` | Every modifier on every equipped item, with its affix tier, the roll inside that tier’s range, and what better tiers exist. | `slot`, `includeInactive` |
 | `poe2_find_gear_improvements` | Two kinds of concrete gear change, both grounded in the affix data rather than opinion. | `limit` |
-| `poe2_survivability_headroom` | How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed as a headroom multiple. | — |
+| `poe2_survivability_headroom` | How the character’s smallest fatal hit compares to base monster damage at every waystone tier (1-16) and at the boss levels Path of Building itself uses — 82, the pinnacle boss floor, and 85, the ceiling for all enemies. | — |
 | `poe2_pob_status` | Report whether a live Path of Building instance is reachable, which build it has open, and what its engine currently computes. | `includeCalcs` |
 | `poe2_pob_load_character` ⚠️ | Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. | `allocate`, `deallocate` |
 | `poe2_pob_simulate_node` ⚠️ | Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree back. | `nodeId` |
@@ -214,9 +214,9 @@ Two kinds of concrete gear change, both grounded in the affix data rather than o
 
 ### `poe2_survivability_headroom`
 
-**Survivability against area level**
+**Survivability by map tier and against bosses**
 
-How the character’s smallest fatal hit compares to base monster damage at each endgame area level, expressed as a headroom multiple. Deliberately does NOT name a map tier: no map tier data exists in any source used here, and mapping area level to tier would be invented rather than derived. The figure is against a BASE monster — rares, uniques and map modifiers hit considerably harder — and the caveats are returned alongside it so the number is never read bare.
+How the character’s smallest fatal hit compares to base monster damage at every waystone tier (1-16) and at the boss levels Path of Building itself uses — 82, the pinnacle boss floor, and 85, the ceiling for all enemies. Tier maps to area level as 64 + tier, taken from the waystone item bases. Reports the highest tier that is comfortable and the first that is not. The figure is against a BASE monster: rares, uniques and map modifiers hit considerably harder and are not modelled, so it is an upper bound rather than a safety verdict, and the caveats are returned alongside it so the number is never read bare.
 
 _No parameters._
 
