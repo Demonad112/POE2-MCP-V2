@@ -45,6 +45,11 @@ export interface ToolDef {
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
 const READ_ONLY_NETWORK = { ...READ_ONLY, openWorldHint: true } as const
 
+/** Item classes a modifier can appear on, or null when it is not listed. */
+function modClassesFor(db: ReturnType<typeof modDatabase>, modId: string): string[] | null {
+  return db.classesForMod(modId)
+}
+
 function truncate<T>(items: T[], limit: number): { items: T[]; total: number; truncated: boolean } {
   return { items: items.slice(0, limit), total: items.length, truncated: items.length > limit }
 }
@@ -464,9 +469,8 @@ export const TOOLS: ToolDef[] = [
     title: 'Search item modifiers',
     description:
       'Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, ' +
-      'affix names and level requirements. Tier 1 is the best. Useful for judging what an item could roll, or what a ' +
-      'craft is aiming at. Does NOT cover which item bases a mod can appear on — that linkage is absent from the ' +
-      'available data and is not guessed at.',
+      'affix names, level requirements and the item classes each modifier can appear on. Tier 1 is the best. Useful ' +
+      'for judging what an item could roll, or what a craft is aiming at.',
     inputSchema: {
       query: z.string().describe('Stat text or affix name, e.g. "to Strength", "Lightning Resistance", "of the Gods".'),
       kind: z
@@ -495,6 +499,7 @@ export const TOOLS: ToolDef[] = [
           tier: `${m.tier} of ${m.tiers}`,
           levelRequirement: m.level,
           rolls: m.stats.map((s) => ({ stat: s.id, min: s.textMin, max: s.text })),
+          canAppearOn: db.itemClasses.length ? (modClassesFor(db, m.id) ?? 'not listed') : 'compatibility data unavailable',
         })),
         limitation: db.limitation,
       }
@@ -505,11 +510,11 @@ export const TOOLS: ToolDef[] = [
     name: 'poe2_analyze_item_mods',
     title: 'Analyze an item’s modifier rolls',
     description:
-      'Place each of an item’s modifier rolls in its tier and show how far it sits from the best possible roll. ' +
-      'Analyses an equipped item on the loaded character by slot, or arbitrary mod lines passed directly. Lines with ' +
-      'no counterpart in the modifier table are reported as unmatched rather than guessed at — runes, unique-only ' +
-      'modifiers and undescribed stats all fall in that category. This is tier analysis, NOT a legality check: ' +
-      'whether a mod may appear on a given base is not derivable from the available data.',
+      'Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and ' +
+      'check every line against the modifier pool for that item’s class. Analyses an equipped item on the loaded ' +
+      'character by slot, or arbitrary mod lines with a base name. Lines absent from the tables report as unmatched ' +
+      'or unknown rather than guessed at — runes, implicits and unique-only modifiers all fall in that category, and ' +
+      'absence is never treated as a violation.',
     inputSchema: {
       slot: z
         .number()
@@ -517,20 +522,27 @@ export const TOOLS: ToolDef[] = [
         .optional()
         .describe('Equipment slot id on the loaded character: 1 helmet, 2 gloves, 3 body, 4 amulet, 5 boots, 6 off hand, 7 main hand, 8/9 rings, 11 belt, 15/16 swap weapons.'),
       mods: z.array(z.string()).optional().describe('Modifier lines to analyse directly, instead of an equipped item.'),
+      baseType: z.string().optional().describe('Base item name for the provided lines, e.g. "Militant Bow". Enables the item-class compatibility check.'),
     },
     annotations: READ_ONLY,
     handler: (args) => {
       const db = modDatabase()
 
       if (Array.isArray(args.mods) && args.mods.length) {
-        return { source: 'provided lines', ...db.assessAll(args.mods as string[]) }
+        const lines = args.mods as string[]
+        const base = typeof args.baseType === 'string' ? args.baseType : null
+        return {
+          source: 'provided lines',
+          ...db.assessAll(lines),
+          compatibility: base ? db.validateItemMods(base, lines) : 'Pass baseType to check which item class these can appear on.',
+        }
       }
 
       const { analysis } = requireCharacter()
       if (typeof args.slot !== 'number') {
         return {
-          note: 'Pass a slot id to analyse an equipped item, or mods to analyse lines directly.',
-          equipped: analysis.items.map((i) => ({ slot: i.slotId, label: i.slotLabel, name: i.name, active: i.active })),
+          note: 'Pass a slot id to analyse an equipped item, or mods (with baseType) to analyse lines directly.',
+          equipped: analysis.items.map((i) => ({ slot: i.slotId, label: i.slotLabel, name: i.name, baseType: i.baseType, active: i.active })),
         }
       }
 
@@ -543,6 +555,7 @@ export const TOOLS: ToolDef[] = [
       return {
         item: { slot: item.slotId, slotLabel: item.slotLabel, name: item.name, baseType: item.baseType, itemLevel: item.itemLevel, active: item.active },
         ...db.assessAll(item.mods),
+        compatibility: db.validateItemMods(item.baseType, item.mods),
       }
     },
   },

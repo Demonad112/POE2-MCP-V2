@@ -14,14 +14,16 @@
  * ("{0:+d} to Strength"). Grouping by stat and generation type, ordered by
  * level requirement, gives real tiers with real roll ranges.
  *
- * **NOT derivable: which item bases a mod can roll on.** `type_key` looks like
- * an index into spawn_tags, and it is not. Checked: `IncreasedAttackSpeed1`
- * would map to ['belt','default'] — attack speed on belts only — and flat
- * energy shield would map to bows, claws, daggers plus 'sanctum_monster' and
- * 'Claw_onhit_audio', which are not item classes at all. Only 11,403 of 16,788
- * type_keys are even in range. So this artifact deliberately carries NO
- * mod-to-base compatibility, and nothing built on it may claim to validate
- * whether a mod is legal on an item.
+ * **Not derivable FROM THIS SOURCE: which item bases a mod can roll on.**
+ * `type_key` looks like an index into spawn_tags, and it is not. Checked:
+ * `IncreasedAttackSpeed1` would map to ['belt','default'] — attack speed on
+ * belts only — and flat energy shield would map to bows, claws, daggers plus
+ * 'sanctum_monster' and 'Claw_onhit_audio', which are not item classes at all.
+ * Only 11,403 of 16,788 type_keys are even in range.
+ *
+ * That linkage IS available elsewhere: RePoE-fork publishes it directly, and
+ * build-mod-bases.mjs turns it into a companion artifact keyed by the same mod
+ * ids. So this file carries tiers and rolls; that one carries compatibility.
  *
  * Usage: node packages/data/scripts/build-mods.mjs [modsPath] [statDescriptionsPath]
  */
@@ -124,7 +126,7 @@ const artifact = {
   modCount: out.length,
   familyCount: families.size,
   limitation:
-    'Carries no mod-to-item-base compatibility: type_key does not index spawn_tags (verified — it maps attack speed to belts only, and flat energy shield to bows and non-item tags). Nothing built on this may claim to validate whether a mod is legal on a given base.',
+    'Carries tiers and roll ranges only. Mod-to-item-class compatibility lives in the companion artifact mod-bases.json, built from RePoE-fork; type_key in this source does not index spawn_tags and must not be used for it.',
   mods: out,
 }
 

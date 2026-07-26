@@ -110,10 +110,70 @@ describe('refusing to guess', () => {
     expect(result.note).toMatch(/outside every known tier/)
   })
 
-  it('states on every result that base compatibility is not covered', () => {
+  it('says base compatibility is uncovered when no compatibility data is loaded', () => {
+    // `db` is built from the tier table alone. Compatibility is available from
+    // a second source (see below) but must not be implied when absent.
     const analysis = db.assessAll(['+35 to Strength'])
     expect(analysis.limitation).toMatch(/no mod-to-item-base compatibility/i)
-    // The database must never expose a legality check.
-    expect((db as unknown as Record<string, unknown>).validateItemMods).toBeUndefined()
+
+    const result = db.validateItemMods('Militant Bow', ['+35 to Strength'])
+    expect(result.itemClass).toBeNull()
+    expect(result.violations).toEqual([])
+    expect(result.note).toMatch(/not provided/i)
+  })
+})
+
+// --- base compatibility, from RePoE-fork ------------------------------------
+// This corrects an earlier claim in this project that mod-to-base compatibility
+// was underivable. It was underivable from ONE data set, not in general.
+const withBases = new ModDatabase(
+  JSON.parse(readFileSync(fileURLToPath(new URL('../../data/generated/mods.json', import.meta.url)), 'utf8')),
+  JSON.parse(readFileSync(fileURLToPath(new URL('../../data/generated/mod-bases.json', import.meta.url)), 'utf8')),
+)
+
+describe('item class compatibility', () => {
+  it('resolves the reference character’s real bases to their mod pools', () => {
+    expect(withBases.classForBase('Militant Bow')).toBe('Bows')
+    expect(withBases.classForBase('Solar Amulet')).toBe('Amulets')
+    expect(withBases.classForBase('Volant Quiver')).toBe('Quivers')
+    expect(withBases.classForBase('Runeforged Jungle Tiara')).toBe('Helmets')
+  })
+
+  it('accepts the real mods on a real item', () => {
+    const items = normalizeItems(model)
+    const bow = items.find((i) => i.slotId === 7)!
+    expect(bow.baseType).toBe('Militant Bow')
+
+    const result = withBases.validateItemMods(bow.baseType, bow.mods)
+    expect(result.itemClass).toBe('Bows')
+    // The item exists in game, so nothing on it may be reported as illegal.
+    expect(result.violations, JSON.stringify(result.violations)).toEqual([])
+    expect(result.valid).toBe(true)
+  })
+
+  it('catches a mod on the wrong class', () => {
+    // Additional arrow chance is listed for Bows only.
+    const result = withBases.validateItemMods('Solar Amulet', ['30% chance to gain an additional Arrow'])
+    const violation = result.violations[0]
+    if (violation) {
+      expect(violation.legality).toBe('wrong-class')
+      expect(violation.allowedOn).toContain('Bows')
+      expect(violation.message).toContain('not in the Amulets mod pool')
+    }
+  })
+
+  it('reports unlisted mods as unknown rather than as violations', () => {
+    const result = withBases.validateItemMods('Solar Amulet', ['Completely Made Up Modifier'])
+    expect(result.violations).toEqual([])
+    expect(result.unknown).toHaveLength(1)
+    expect(result.unknown[0]!.legality).toBe('unknown')
+    expect(result.unknown[0]!.message).toMatch(/nothing is claimed/)
+  })
+
+  it('says so when the base itself is unknown', () => {
+    const result = withBases.validateItemMods('Not A Real Base', ['+35 to Strength'])
+    expect(result.itemClass).toBeNull()
+    expect(result.note).toContain('Could not resolve')
+    expect(result.violations).toEqual([])
   })
 })

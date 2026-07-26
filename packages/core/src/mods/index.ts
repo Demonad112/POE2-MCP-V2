@@ -1,23 +1,26 @@
 /**
- * Item modifier database: affixes, roll ranges and tiers.
+ * Item modifier database: affixes, roll ranges, tiers, and which item classes
+ * each modifier can appear on.
  *
- * ## What this answers, and what it refuses to
+ * ## A correction
  *
- * **Answers:** what affixes exist for a stat, what they can roll, which tier a
- * given roll corresponds to, and how far a roll sits from the best possible.
- * All of that comes from the game's own mod table joined to its stat
- * descriptions.
+ * An earlier version of this module stated that mod-to-item-base compatibility
+ * "is not in the data" and refused to offer a legality check. That was true of
+ * the extracted files it was looking at — in those, `type_key` looks like an
+ * index into spawn_tags and is not, mapping attack speed to belts only and flat
+ * energy shield to bows and to non-item tags like `Claw_onhit_audio`.
  *
- * **Refuses:** whether a mod is *legal on a given item base*. That linkage is
- * not in the data. `type_key` looks like an index into spawn_tags and is not —
- * following it maps attack speed to belts only, and flat energy shield to bows,
- * claws and non-item tags like `Claw_onhit_audio`. Only 11,403 of 16,788
- * type_keys are even in range. So there is no `validateItemMods` here: a
- * legality check would have to invent the rule it claims to enforce.
+ * It was wrong as a general claim. RePoE-fork publishes the linkage directly,
+ * per item class and split by prefix and suffix, and its modifier ids share a
+ * namespace with the tier table. So compatibility IS checkable, and
+ * `validateItemMods` below does it. The earlier claim is retracted.
  *
- * Tier analysis is the useful thing that IS grounded, and it is what an item is
- * usually judged on anyway — "your +42 life is tier 4 of 9" is more actionable
- * than "this mod is allowed here".
+ * ## What is still not claimed
+ *
+ * Absence from the compatibility table means RePoE does not list that modifier,
+ * not that it is illegal everywhere — so an unlisted mod reports as `unknown`
+ * rather than as a violation. Item level requirements, influence, and crafting
+ * restrictions beyond the class pool are not modelled.
  */
 
 export interface ModStat {
@@ -88,13 +91,48 @@ export interface ItemModAnalysis {
   note: string | null
 }
 
+/** Mod-to-item-class compatibility, from RePoE-fork. */
+export interface ModBaseData {
+  version: number
+  itemClasses: string[]
+  /** Base item name -> the item class whose mod pool applies. */
+  baseNameToClass: Record<string, string>
+  /** modId -> { k: kinds (prefix/suffix), c: item classes }. */
+  mods: Record<string, { k: string[]; c: string[] }>
+}
+
+export type ModLegality = 'ok' | 'wrong-class' | 'unknown'
+
+export interface ModCheck {
+  text: string
+  modId: string | null
+  legality: ModLegality
+  /** Item classes this mod can appear on. Empty when unknown. */
+  allowedOn: string[]
+  kinds: string[]
+  message: string
+}
+
+export interface ItemModValidation {
+  itemClass: string | null
+  checks: ModCheck[]
+  violations: ModCheck[]
+  unknown: ModCheck[]
+  valid: boolean
+  note: string
+}
+
 export class ModDatabase {
   private readonly bySkeleton = new Map<string, ModEntry[]>()
+  private readonly baseData: ModBaseData | null
   readonly limitation: string
   readonly size: number
 
-  constructor(data: ModData) {
-    this.limitation = data.limitation
+  constructor(data: ModData, baseData?: ModBaseData) {
+    this.baseData = baseData ?? null
+    this.limitation = baseData
+      ? 'Compatibility covers which item class a modifier can appear on. Absence from the table means it is not listed, not that it is illegal — those report as unknown. Item level, influence and crafting restrictions beyond the class pool are not modelled.'
+      : data.limitation
     this.size = data.mods.length
     for (const mod of data.mods) {
       for (const stat of mod.stats) {
@@ -197,6 +235,96 @@ export class ModDatabase {
         level: chosen.level,
       },
       note: null,
+    }
+  }
+
+  /** The item class whose mod pool applies to a base, e.g. "Militant Bow" -> "Bows". */
+  classForBase(baseName: string): string | null {
+    if (!this.baseData) return null
+    return this.baseData.baseNameToClass[baseName.trim()] ?? null
+  }
+
+  get itemClasses(): string[] {
+    return this.baseData?.itemClasses ?? []
+  }
+
+  /** Item classes a modifier can appear on. Null when it is not listed. */
+  classesForMod(modId: string): string[] | null {
+    return this.baseData?.mods[modId]?.c ?? null
+  }
+
+  /**
+   * Check each of an item's mod lines against the pool for its class.
+   *
+   * A line reports `wrong-class` only when the modifier is positively listed
+   * for other classes and not this one. Anything the table does not carry
+   * reports `unknown` — absence is not evidence of illegality.
+   */
+  validateItemMods(baseName: string, lines: string[]): ItemModValidation {
+    const itemClass = this.classForBase(baseName)
+
+    if (!this.baseData || !itemClass) {
+      const checks: ModCheck[] = lines.map((text) => ({
+        text,
+        modId: null,
+        legality: 'unknown' as const,
+        allowedOn: [],
+        kinds: [],
+        message: this.baseData
+          ? `"${baseName}" is not a base this data set knows, so the mod pool that applies to it is unknown.`
+          : 'No compatibility data is loaded, so nothing can be checked.',
+      }))
+      return {
+        itemClass: null,
+        checks,
+        violations: [],
+        unknown: checks,
+        valid: true,
+        note: this.baseData
+          ? `Could not resolve "${baseName}" to an item class, so no line was checked.`
+          : 'Compatibility data was not provided to this database.',
+      }
+    }
+
+    const checks: ModCheck[] = lines.map((text) => {
+      const candidates = this.bySkeleton.get(modSkeleton(text)) ?? []
+      // Prefer a candidate the table actually knows about.
+      const known = candidates.find((m) => this.baseData!.mods[m.id])
+      const entry = known ? this.baseData!.mods[known.id]! : null
+
+      if (!entry) {
+        return {
+          text,
+          modId: known?.id ?? candidates[0]?.id ?? null,
+          legality: 'unknown' as const,
+          allowedOn: [],
+          kinds: [],
+          message:
+            'This line is not in the compatibility table. It may be a rune, an implicit, a corrupted or unique-only modifier, or simply unlisted — so nothing is claimed about it.',
+        }
+      }
+
+      const allowed = entry.c.includes(itemClass)
+      return {
+        text,
+        modId: known!.id,
+        legality: allowed ? ('ok' as const) : ('wrong-class' as const),
+        allowedOn: entry.c,
+        kinds: entry.k,
+        message: allowed
+          ? `${known!.id} can appear on ${itemClass} as a ${entry.k.join(' or ')}.`
+          : `${known!.id} is not in the ${itemClass} mod pool. It is listed for ${entry.c.slice(0, 6).join(', ')}${entry.c.length > 6 ? ` and ${entry.c.length - 6} more` : ''}.`,
+      }
+    })
+
+    const violations = checks.filter((c) => c.legality === 'wrong-class')
+    return {
+      itemClass,
+      checks,
+      violations,
+      unknown: checks.filter((c) => c.legality === 'unknown'),
+      valid: violations.length === 0,
+      note: this.limitation,
     }
   }
 

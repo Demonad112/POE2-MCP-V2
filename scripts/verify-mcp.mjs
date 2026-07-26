@@ -184,16 +184,40 @@ const mods = await callTool('poe2_search_mods', { query: 'to Strength', kind: 'S
 if (mods.results?.[0]?.affix !== 'of the Gods' || !mods.results[0].tier.startsWith('1 of')) {
   failures.push(`mod search wrong: ${JSON.stringify(mods.results?.[0])}`)
 }
-if (!mods.limitation?.includes('no mod-to-item-base compatibility')) {
-  failures.push('mod search did not state that base compatibility is uncovered')
+if (!Array.isArray(mods.results?.[0]?.canAppearOn)) {
+  failures.push(`mod search did not report item-class compatibility: ${JSON.stringify(mods.results?.[0]?.canAppearOn)}`)
 }
-console.log(`mods: top strength suffix is "${mods.results?.[0]?.affix}" tier ${mods.results?.[0]?.tier}`)
+console.log(
+  `mods: "${mods.results?.[0]?.affix}" tier ${mods.results?.[0]?.tier}, on ${mods.results?.[0]?.canAppearOn?.length} classes`,
+)
 
-const itemMods = await callTool('poe2_analyze_item_mods', { slot: 11 })
-if (itemMods.item?.name !== 'Golem Tether' || typeof itemMods.matched !== 'number') {
+const itemMods = await callTool('poe2_analyze_item_mods', { slot: 7 })
+if (itemMods.item?.baseType !== 'Militant Bow' || typeof itemMods.matched !== 'number') {
   failures.push(`item mod analysis wrong: ${JSON.stringify(itemMods.item)}`)
 }
-console.log(`item mods: ${itemMods.item?.name} — ${itemMods.matched} matched, ${itemMods.unmatched} unmatched`)
+// The item exists in game, so nothing on it may be reported as illegal.
+if (itemMods.compatibility?.itemClass !== 'Bows') {
+  failures.push(`base class not resolved: ${JSON.stringify(itemMods.compatibility?.itemClass)}`)
+}
+if (itemMods.compatibility?.violations?.length) {
+  failures.push(`real equipped item reported illegal mods: ${JSON.stringify(itemMods.compatibility.violations).slice(0, 200)}`)
+}
+console.log(
+  `item mods: ${itemMods.item?.name} (${itemMods.compatibility?.itemClass}) — ${itemMods.matched} tiered, ${itemMods.compatibility?.violations?.length} illegal`,
+)
+
+// A mod on the wrong class must be caught.
+const wrongClass = await callTool('poe2_analyze_item_mods', {
+  baseType: 'Solar Amulet',
+  mods: ['30% chance to gain an additional Arrow'],
+})
+if (wrongClass.compatibility?.violations?.length) {
+  console.log(`item mods: wrong-class mod rejected — ${wrongClass.compatibility.violations[0].message.slice(0, 90)}`)
+} else if (wrongClass.compatibility?.unknown?.length) {
+  console.log('item mods: that line is unlisted, so reported as unknown rather than a violation')
+} else {
+  failures.push('a bow-only mod on an amulet was neither rejected nor reported unknown')
+}
 
 // --- tree routes ------------------------------------------------------------
 const routes = await callTool('poe2_suggest_tree_routes', { stat: 'chaosResistance', maxCost: 4 })

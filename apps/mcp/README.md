@@ -82,11 +82,12 @@ remote resource.
   supports whose tags share nothing with the skill. Nothing else is claimed,
   because nothing else is derivable: the extracted gem databases carry no usable
   constraints, and inventing rules is exactly the failure this project avoids.
-- **Whether a modifier can roll on a given item base.** `poe2_search_mods` and
-  `poe2_analyze_item_mods` cover tiers and roll ranges, which are real. Base
-  compatibility is not in the data: `type_key` looks like an index into
-  spawn_tags and is not — following it maps attack speed to belts only, and flat
-  energy shield to bows and to non-item tags like `Claw_onhit_audio`.
+- **Modifier restrictions beyond the item class.** `poe2_analyze_item_mods`
+  checks each line against the mod pool for that item's class, using data from
+  RePoE-fork. Item level requirements, influence, and crafting restrictions
+  beyond the class pool are not modelled — and a modifier the table does not
+  list reports as `unknown`, never as a violation, because absence is not
+  evidence of illegality.
 - **Whether a passive node is the *right* choice.**
   `poe2_suggest_tree_routes` reports what a node costs and what it prints,
   ranked by value per point. Which node suits a build depends on where that

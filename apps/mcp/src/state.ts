@@ -19,6 +19,7 @@ import {
   parseAllSetups,
   type Analysis,
   type CharModel,
+  type ModBaseData,
   type ModData,
   type PassiveTreeData,
   type SkillSetup,
@@ -90,7 +91,15 @@ export function passiveTree(): PassiveTree {
 export function modDatabase(): ModDatabase {
   if (!mods) {
     const data = JSON.parse(readFileSync(join(dataDir, 'mods.json'), 'utf8')) as ModData
-    mods = new ModDatabase(data)
+    // Compatibility comes from a second source (RePoE-fork). Its absence must
+    // degrade to "cannot check", never to a silent pass.
+    let bases: ModBaseData | undefined
+    try {
+      bases = JSON.parse(readFileSync(join(dataDir, 'mod-bases.json'), 'utf8')) as ModBaseData
+    } catch {
+      bases = undefined
+    }
+    mods = new ModDatabase(data, bases)
   }
   return mods
 }

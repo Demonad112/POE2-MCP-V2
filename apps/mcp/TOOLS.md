@@ -22,8 +22,8 @@
 | `poe2_import_pob` | Decode a Path of Building export code and return the build level, class and Path of Building’s own computed stats. | `code` |
 | `poe2_get_pob_code` | Return the Path of Building export code poe.ninja embeds for the loaded character, ready to paste into Path of Building, along with the stats it carries. | — |
 | `poe2_cross_validate` | Compare poe.ninja’s computed stats against Path of Building’s own engine and against poe.ninja’s own breakdown arithmetic. | — |
-| `poe2_search_mods` | Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, affix names and level requirements. | `query`, `kind`, `limit` |
-| `poe2_analyze_item_mods` | Place each of an item’s modifier rolls in its tier and show how far it sits from the best possible roll. | `slot`, `mods` |
+| `poe2_search_mods` | Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, affix names, level requirements and the item classes each modifier can appear on. | `query`, `kind`, `limit` |
+| `poe2_analyze_item_mods` | Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and check every line against the modifier pool for that item’s class. | `slot`, `mods`, `baseType` |
 | `poe2_suggest_tree_routes` | Find the cheapest unallocated passive nodes granting a stat, with the real point cost and the exact route from the character’s current tree. | `stat`, `maxCost`, `notablesOnly`, `limit` |
 | `poe2_export_pob_with_tree` | Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to paste into Path of Building. | `allocate`, `deallocate`, `replace` |
 | `poe2_explain_mechanic` | Explain a Path of Exile 2 mechanic, with the basis for each claim stated so it can be weighed. | `query` |
@@ -150,7 +150,7 @@ _No parameters._
 
 **Search item modifiers**
 
-Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, affix names and level requirements. Tier 1 is the best. Useful for judging what an item could roll, or what a craft is aiming at. Does NOT cover which item bases a mod can appear on — that linkage is absent from the available data and is not guessed at.
+Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, affix names, level requirements and the item classes each modifier can appear on. Tier 1 is the best. Useful for judging what an item could roll, or what a craft is aiming at.
 
 - `query` — Stat text or affix name, e.g. "to Strength", "Lightning Resistance", "of the Gods".
 - `kind` *(optional)* — Restrict to one modifier kind.
@@ -160,10 +160,11 @@ Search the game’s item modifier table by stat text or affix name, returning ti
 
 **Analyze an item’s modifier rolls**
 
-Place each of an item’s modifier rolls in its tier and show how far it sits from the best possible roll. Analyses an equipped item on the loaded character by slot, or arbitrary mod lines passed directly. Lines with no counterpart in the modifier table are reported as unmatched rather than guessed at — runes, unique-only modifiers and undescribed stats all fall in that category. This is tier analysis, NOT a legality check: whether a mod may appear on a given base is not derivable from the available data.
+Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and check every line against the modifier pool for that item’s class. Analyses an equipped item on the loaded character by slot, or arbitrary mod lines with a base name. Lines absent from the tables report as unmatched or unknown rather than guessed at — runes, implicits and unique-only modifiers all fall in that category, and absence is never treated as a violation.
 
 - `slot` *(optional)* — Equipment slot id on the loaded character: 1 helmet, 2 gloves, 3 body, 4 amulet, 5 boots, 6 off hand, 7 main hand, 8/9 rings, 11 belt, 15/16 swap weapons.
 - `mods` *(optional)* — Modifier lines to analyse directly, instead of an equipped item.
+- `baseType` *(optional)* — Base item name for the provided lines, e.g. "Militant Bow". Enables the item-class compatibility check.
 
 ### `poe2_suggest_tree_routes`
 
