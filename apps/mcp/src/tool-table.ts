@@ -24,8 +24,18 @@ function firstSentence(text: string): string {
 
 const rows = TOOLS.map((tool) => {
   const params = Object.keys(tool.inputSchema)
-  return `| \`${tool.name}\` | ${firstSentence(tool.description)} | ${params.length ? params.map((p) => `\`${p}\``).join(', ') : '—'} |`
+  // Marked from the annotation, so the docs cannot claim read-only for a tool
+  // that is not — the bridge tools drive the user's real Path of Building.
+  const effect = tool.annotations.readOnlyHint ? '' : ' ⚠️'
+  return `| \`${tool.name}\`${effect} | ${firstSentence(tool.description)} | ${params.length ? params.map((p) => `\`${p}\``).join(', ') : '—'} |`
 }).join('\n')
+
+const writers = TOOLS.filter((t) => !t.annotations.readOnlyHint)
+const scope = writers.length
+  ? `${TOOLS.length} tools. ${TOOLS.length - writers.length} are read-only; ${writers.length} marked ⚠️ act on a ` +
+    `running Path of Building on this machine (${writers.map((t) => `\`${t.name}\``).join(', ')}). Nothing here ever ` +
+    'writes to a game account, a file, or poe.ninja.'
+  : `${TOOLS.length} tools, all read-only.`
 
 const detail = TOOLS.map((tool) => {
   const params = Object.entries(tool.inputSchema)
@@ -46,7 +56,7 @@ const content = `<!--
 
 # Tools
 
-${TOOLS.length} tools, all read-only.
+${scope}
 
 | Tool | Purpose | Parameters |
 |---|---|---|

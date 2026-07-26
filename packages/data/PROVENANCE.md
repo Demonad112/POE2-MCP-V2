@@ -64,3 +64,39 @@ build script, not the data.
 Passive tree data derives from Path of Exile 2, © Grinding Gear Games. It is
 included here for interoperability in an unofficial fan tool. See the repository
 `LICENSE`.
+
+## `generated/mods.json` and `generated/mod-bases.json`
+
+Two artifacts, two sources, because neither alone is sufficient.
+
+**`mods.json`** — affix ladders with real roll windows. Built by
+`scripts/build-mods.mjs` from `data/game/mods/mods.json` joined to
+`stat_descriptions.json`, both from Demonad112/poe2-mcp. 12,601 mods across
+4,353 tier families; 3.6 MB raw, 0.39 MB gzipped.
+
+**`mod-bases.json`** — which item class each modifier can appear on, and whether
+as prefix or suffix. Built by `scripts/build-mod-bases.mjs` from
+[RePoE-fork](https://repoe-fork.github.io/poe2/) `mods_by_base.min.json` and
+`base_items.min.json`. 2,585 mods across 53 item classes, plus 1,722 base names
+mapped to their class; 267 KB raw, 24 KB gzipped.
+
+### A correction worth recording
+
+An earlier version of this project asserted that mod-to-item-base compatibility
+"is not derivable from the available data". That was true of the first source
+only — its `type_key` looks like an index into `spawn_tags` and is not, mapping
+attack speed to belts alone and flat energy shield to bows and to non-item tags
+like `Claw_onhit_audio`, with only 11,403 of 16,788 keys even in range.
+
+It was wrong as a general claim, and RePoE-fork disproved it. The two sources
+share a mod-id namespace (2,795 of RePoE's 3,450 ids appear in the tier table),
+so they join cleanly.
+
+### Two naming traps in the RePoE join
+
+- `mods_by_base.json` uses plural class names ("Bows", "Body Armours");
+  `base_items.json` uses singular ("Bow", "Body Armour"). Matching on exact
+  equality silently drops every weapon — the build script bridges them and
+  reports anything left unmatched.
+- `unique` mods are excluded: they appear on specific uniques rather than
+  through crafting, so including them would let anything validate anywhere.

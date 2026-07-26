@@ -12,6 +12,34 @@ import { Skeleton } from '@/components/Skeleton'
 import { TreePanel } from '@/components/tree/TreePanel'
 import { Tag } from '@/components/ui'
 
+/**
+ * Stats the analysis found the build short on, worst first.
+ *
+ * Only genuine shortfalls: a resistance below its cap, and the damage type with
+ * the lowest maximum hit when it is meaningfully thinner than the rest. Offering
+ * routes for a stat that is already fine would be noise dressed as advice.
+ */
+function weakStatsFrom(analysis: Analysis) {
+  const out: Array<{ key: string; label: string; shortfall: string }> = []
+
+  for (const res of analysis.defense.resistances) {
+    if (res.underCap <= 0) continue
+    out.push({
+      key: `${res.type}Resistance`,
+      label: `${res.type[0]!.toUpperCase()}${res.type.slice(1)} res`,
+      shortfall: `−${res.underCap}%`,
+    })
+  }
+  // Largest gap first.
+  out.sort((a, b) => Number(b.shortfall.replace(/\D/g, '')) - Number(a.shortfall.replace(/\D/g, '')))
+
+  const lowest = analysis.defense.maxHits[0]
+  if (lowest && lowest.ratioToHighest >= 1.5 && analysis.defense.life > 0) {
+    out.push({ key: 'life', label: 'Life', shortfall: `${lowest.type} is thinnest` })
+  }
+  return out
+}
+
 export default function Home() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [busy, setBusy] = useState(false)
@@ -92,7 +120,7 @@ export default function Home() {
 
             <DpsMatrix dps={analysis.dps} />
 
-            <TreePanel allocation={analysis.passives} />
+            <TreePanel allocation={analysis.passives} weakStats={weakStatsFrom(analysis)} />
 
             {analysis.reconciliation ? <Reconciliation report={analysis.reconciliation} /> : null}
           </div>

@@ -7,12 +7,20 @@
 
 export {
   NODE_KIND,
+  PobBridge,
+  PobBridgeError,
   decodePobExport,
+  editPobTree,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
+  rankNodesByMeasuredGain,
   resolveAllocation,
+  simulateCustomMods,
+  simulatePassiveNode,
   statSources,
+  suggestNodesForStat,
+  supportedStats,
   validateByName,
   validateSetup,
 } from '@poe2/core'

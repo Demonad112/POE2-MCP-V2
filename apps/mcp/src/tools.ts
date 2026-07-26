@@ -14,16 +14,30 @@ import { z } from 'zod'
 import {
   NODE_KIND,
   decodePobExport,
+  editPobTree,
   findMechanicSafe,
   parseProfileUrl,
   pathToNode,
   readPlayerStats,
+  rankNodesByMeasuredGain,
   resolveAllocation,
+  simulateCustomMods,
+  simulatePassiveNode,
   statSources,
+  suggestNodesForStat,
+  supportedStats,
   validateByName,
   validateSetup,
 } from './deps.js'
-import { client, loadCharacter, loadedCharacter, passiveTree, requireCharacter } from './state.js'
+import {
+  client,
+  loadCharacter,
+  loadedCharacter,
+  modDatabase,
+  passiveTree,
+  pobBridge,
+  requireCharacter,
+} from './state.js'
 
 export interface ToolDef {
   name: string
@@ -41,6 +55,11 @@ export interface ToolDef {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
 const READ_ONLY_NETWORK = { ...READ_ONLY, openWorldHint: true } as const
+
+/** Item classes a modifier can appear on, or null when it is not listed. */
+function modClassesFor(db: ReturnType<typeof modDatabase>, modId: string): string[] | null {
+  return db.classesForMod(modId)
+}
 
 function truncate<T>(items: T[], limit: number): { items: T[]; total: number; truncated: boolean } {
   return { items: items.slice(0, limit), total: items.length, truncated: items.length > limit }
@@ -457,6 +476,396 @@ export const TOOLS: ToolDef[] = [
   },
 
   {
+    name: 'poe2_search_mods',
+    title: 'Search item modifiers',
+    description:
+      'Search the game’s item modifier table by stat text or affix name, returning tiers with their real roll ranges, ' +
+      'affix names, level requirements and the item classes each modifier can appear on. Tier 1 is the best. Useful ' +
+      'for judging what an item could roll, or what a craft is aiming at.',
+    inputSchema: {
+      query: z.string().describe('Stat text or affix name, e.g. "to Strength", "Lightning Resistance", "of the Gods".'),
+      kind: z
+        .enum(['PREFIX', 'SUFFIX', 'IMPLICIT', 'CORRUPTED'])
+        .optional()
+        .describe('Restrict to one modifier kind.'),
+      limit: z.number().int().min(1).max(50).optional().describe('Maximum results. Default 15.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const db = modDatabase()
+      const opts: { kind?: string; limit?: number } = { limit: Number(args.limit ?? 15) }
+      if (typeof args.kind === 'string') opts.kind = args.kind
+      const results = db.search(String(args.query), opts)
+
+      if (!results.length) {
+        throw new Error(
+          `No modifier matches "${args.query}". Search matches affix names and rendered stat text, e.g. "to Strength" or "increased Attack Speed".`,
+        )
+      }
+      return {
+        results: results.map((m) => ({
+          id: m.id,
+          affix: m.affix,
+          kind: m.kind,
+          tier: `${m.tier} of ${m.tiers}`,
+          levelRequirement: m.level,
+          rolls: m.stats.map((s) => ({ stat: s.id, min: s.textMin, max: s.text })),
+          canAppearOn: db.itemClasses.length ? (modClassesFor(db, m.id) ?? 'not listed') : 'compatibility data unavailable',
+        })),
+        limitation: db.limitation,
+      }
+    },
+  },
+
+  {
+    name: 'poe2_analyze_item_mods',
+    title: 'Analyze an item’s modifier rolls',
+    description:
+      'Place each of an item’s modifier rolls in its tier, show how far each sits from the best possible roll, and ' +
+      'check every line against the modifier pool for that item’s class. Analyses an equipped item on the loaded ' +
+      'character by slot, or arbitrary mod lines with a base name. Lines absent from the tables report as unmatched ' +
+      'or unknown rather than guessed at — runes, implicits and unique-only modifiers all fall in that category, and ' +
+      'absence is never treated as a violation.',
+    inputSchema: {
+      slot: z
+        .number()
+        .int()
+        .optional()
+        .describe('Equipment slot id on the loaded character: 1 helmet, 2 gloves, 3 body, 4 amulet, 5 boots, 6 off hand, 7 main hand, 8/9 rings, 11 belt, 15/16 swap weapons.'),
+      mods: z.array(z.string()).optional().describe('Modifier lines to analyse directly, instead of an equipped item.'),
+      baseType: z.string().optional().describe('Base item name for the provided lines, e.g. "Militant Bow". Enables the item-class compatibility check.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const db = modDatabase()
+
+      if (Array.isArray(args.mods) && args.mods.length) {
+        const lines = args.mods as string[]
+        const base = typeof args.baseType === 'string' ? args.baseType : null
+        return {
+          source: 'provided lines',
+          ...db.assessAll(lines),
+          compatibility: base ? db.validateItemMods(base, lines) : 'Pass baseType to check which item class these can appear on.',
+        }
+      }
+
+      const { analysis } = requireCharacter()
+      if (typeof args.slot !== 'number') {
+        return {
+          note: 'Pass a slot id to analyse an equipped item, or mods (with baseType) to analyse lines directly.',
+          equipped: analysis.items.map((i) => ({ slot: i.slotId, label: i.slotLabel, name: i.name, baseType: i.baseType, active: i.active })),
+        }
+      }
+
+      const item = analysis.items.find((i) => i.slotId === args.slot)
+      if (!item) {
+        throw new Error(
+          `Nothing equipped in slot ${args.slot}. Occupied slots: ${analysis.items.map((i) => `${i.slotId} (${i.slotLabel})`).join(', ')}.`,
+        )
+      }
+      return {
+        item: { slot: item.slotId, slotLabel: item.slotLabel, name: item.name, baseType: item.baseType, itemLevel: item.itemLevel, active: item.active },
+        ...db.assessAll(item.mods),
+        compatibility: db.validateItemMods(item.baseType, item.mods),
+      }
+    },
+  },
+
+  {
+    name: 'poe2_suggest_tree_routes',
+    title: 'Suggest passive routes for a stat',
+    description:
+      'Find the cheapest unallocated passive nodes granting a stat, with the real point cost and the exact route from ' +
+      'the character’s current tree. Ranked by value per point. This reports what a node costs and what it prints — ' +
+      'it does not claim a node is the right choice, since that depends on where the build is heading.',
+    inputSchema: {
+      stat: z.string().describe('Stat key, e.g. chaosResistance, coldResistance, life, energyShield, armour, evasionRating.'),
+      maxCost: z.number().int().min(1).max(10).optional().describe('Maximum passive points to spend. Default 4.'),
+      notablesOnly: z.boolean().optional().describe('Only notables and keystones. Default false.'),
+      limit: z.number().int().min(1).max(20).optional().describe('Maximum routes. Default 5.'),
+    },
+    annotations: READ_ONLY,
+    handler: (args) => {
+      const { analysis } = requireCharacter()
+      const stat = String(args.stat)
+
+      const options: { maxCost: number; limit: number; notablesOnly?: boolean } = {
+        maxCost: Number(args.maxCost ?? 4),
+        limit: Number(args.limit ?? 5),
+      }
+      if (typeof args.notablesOnly === 'boolean') options.notablesOnly = args.notablesOnly
+
+      const routes = suggestNodesForStat(passiveTree(), analysis.passives.live, stat, options)
+
+      if (!routes.length) {
+        const supported = supportedStats()
+        if (!supported.includes(stat)) {
+          throw new Error(`"${stat}" is not a stat this can search for. Supported: ${supported.join(', ')}.`)
+        }
+        return {
+          stat,
+          routes: [],
+          note: `No unallocated node granting ${stat} is within ${options.maxCost} passive points. Raise maxCost to widen the search, bearing in mind that a distant route is rarely good advice.`,
+        }
+      }
+
+      return {
+        stat,
+        routes: routes.map((r) => ({
+          node: { id: r.node.id, name: r.node.name, stats: r.node.stats },
+          cost: r.cost,
+          grants: r.matchedStat,
+          valuePerPoint: r.valuePerPoint,
+          path: r.path.map((n) => ({ id: n.id, name: n.name })),
+        })),
+      }
+    },
+  },
+
+  {
+    name: 'poe2_export_pob_with_tree',
+    title: 'Export a Path of Building code with a modified tree',
+    description:
+      'Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to ' +
+      'paste into Path of Building. Only the tree is rewritten; items, gems, config and calc settings are preserved ' +
+      'byte-for-byte, because this project does not model them. Combine with poe2_suggest_tree_routes to try a route ' +
+      'out in Path of Building’s own engine.',
+    inputSchema: {
+      allocate: z.array(z.number().int()).optional().describe('Node ids to allocate, on top of the current tree.'),
+      deallocate: z.array(z.number().int()).optional().describe('Node ids to remove.'),
+      replace: z.array(z.number().int()).optional().describe('Replace the allocation outright. Takes precedence.'),
+    },
+    annotations: { ...READ_ONLY, idempotentHint: false },
+    handler: async (args) => {
+      const { model } = requireCharacter()
+      const code = model.pathOfBuildingExport
+      if (!code) {
+        throw new Error(
+          'poe.ninja did not attach a Path of Building export to this character, so there is nothing to modify.',
+        )
+      }
+
+      const edit: { allocate?: number[]; deallocate?: number[]; replace?: number[] } = {}
+      if (Array.isArray(args.allocate)) edit.allocate = args.allocate as number[]
+      if (Array.isArray(args.deallocate)) edit.deallocate = args.deallocate as number[]
+      if (Array.isArray(args.replace)) edit.replace = args.replace as number[]
+      if (!edit.allocate?.length && !edit.deallocate?.length && !edit.replace) {
+        throw new Error('Provide at least one of allocate, deallocate or replace.')
+      }
+
+      const tree = passiveTree()
+      const result = await editPobTree(code, edit)
+
+      return {
+        code: result.code,
+        added: result.added.map((id) => ({ id, name: tree.node(id)?.name ?? null })),
+        removed: result.removed.map((id) => ({ id, name: tree.node(id)?.name ?? null })),
+        nodeCount: { before: result.before.treeNodeIds.length, after: result.after.treeNodeIds.length },
+        warnings: result.warnings,
+        note: 'Only the passive tree was changed. Paste this into Path of Building to see what its engine makes of it.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_status',
+    title: 'Check the Path of Building bridge',
+    description:
+      'Report whether a live Path of Building instance is reachable, which build it has open, and what its engine ' +
+      'currently computes. Everything else in this server reads poe.ninja’s numbers; this reads Path of Building’s ' +
+      'own, which is what makes what-if simulation possible. Call this before the simulation tools so a connection ' +
+      'problem is not mistaken for a result.',
+    inputSchema: {
+      includeCalcs: z.boolean().optional().describe('Also return the current computed stats. Default true.'),
+    },
+    annotations: { ...READ_ONLY, openWorldHint: true },
+    handler: async (args) => {
+      const bridge = pobBridge()
+      const ping = await bridge.ping()
+      if (!ping) {
+        return {
+          connected: false,
+          reason:
+            'No Path of Building instance answered on 127.0.0.1 ports 49085-49088. It must be running with the MCP ' +
+            'Bridge addon installed. If it is running, check that the addon declares MCPConfig as a GLOBAL — declaring ' +
+            'it local stops the TCP server binding and looks identical to Path of Building not running.',
+          hint: 'Without this, damage figures come from poe.ninja only and what-if simulation is unavailable.',
+        }
+      }
+
+      let calcs: Record<string, unknown> | { error: string } | null = null
+      if (args.includeCalcs !== false && ping.build_loaded) {
+        try {
+          calcs = await bridge.getCalcs()
+        } catch (err) {
+          calcs = { error: (err as Error).message }
+        }
+      }
+
+      return {
+        connected: true,
+        port: bridge.port,
+        addonVersion: ping.version ?? null,
+        pobVersion: ping.pob_version ?? null,
+        buildLoaded: ping.build_loaded ?? false,
+        buildName: ping.build_name ?? null,
+        calcs,
+        note: ping.build_loaded
+          ? null
+          : 'Path of Building is running but has no build open. Load one, or use poe2_pob_load_character.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_load_character',
+    title: 'Send the loaded character to Path of Building',
+    description:
+      'Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine ' +
+      'can be used for simulation. Optionally applies passive tree changes on the way, letting a suggested route be ' +
+      'tried directly. This replaces whatever build Path of Building currently has open — unsaved work there is lost.',
+    inputSchema: {
+      allocate: z.array(z.number().int()).optional().describe('Node ids to allocate before sending.'),
+      deallocate: z.array(z.number().int()).optional().describe('Node ids to remove before sending.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    handler: async (args) => {
+      const { model } = requireCharacter()
+      let code = model.pathOfBuildingExport
+      if (!code) {
+        throw new Error(
+          'poe.ninja did not attach a Path of Building export to this character, so there is nothing to send.',
+        )
+      }
+
+      const allocate = (args.allocate as number[] | undefined) ?? []
+      const deallocate = (args.deallocate as number[] | undefined) ?? []
+      let edited: { added: number[]; removed: number[]; warnings: string[] } | null = null
+      if (allocate.length || deallocate.length) {
+        const result = await editPobTree(code, { allocate, deallocate })
+        code = result.code
+        edited = { added: result.added, removed: result.removed, warnings: result.warnings }
+      }
+
+      await pobBridge().loadBuild(code)
+
+      return {
+        loaded: true,
+        character: requireCharacter().analysis.identity.name,
+        treeEdits: edited,
+        note:
+          'Path of Building loads asynchronously. Call poe2_pob_status before reading any figure from it, rather ' +
+          'than assuming the build is in place.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_simulate_node',
+    title: 'Measure what a passive node is worth',
+    description:
+      'Allocate a passive node in the running Path of Building, measure every stat that moved, then put the tree ' +
+      'back. The number comes from Path of Building’s own damage engine, so it is measured rather than estimated. ' +
+      'Reports the real point cost, which is often more than one: Path of Building auto-paths, taking every node on ' +
+      'the shortest route. Says explicitly whether the tree was restored — a failed restore leaves your Path of ' +
+      'Building window modified.',
+    inputSchema: {
+      nodeId: z.number().int().describe('Passive node id to test. Get candidates from poe2_suggest_tree_routes.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const nodeId = Number(args.nodeId)
+      const name = passiveTree().node(nodeId)?.name
+      const result = await simulatePassiveNode(pobBridge(), nodeId, name)
+      return { ...result, provenance: 'pob-sim' }
+    },
+  },
+
+  {
+    name: 'poe2_pob_simulate_mods',
+    title: 'Measure what a set of modifiers is worth',
+    description:
+      'Apply modifiers to the running Path of Building as if they came from gear, measure every stat that moved, ' +
+      'then restore what was there. This answers "what would +40 maximum life on a ring do" without owning the ring, ' +
+      'and prices a gear swap in real numbers. Write modifiers the way an item does: "+40 to maximum Life", ' +
+      '"25% increased Physical Damage".',
+    inputSchema: {
+      mods: z.array(z.string()).describe('Modifier lines, in item wording.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const mods = (args.mods as string[] | undefined) ?? []
+      const result = await simulateCustomMods(pobBridge(), mods.map(String))
+      return {
+        ...result,
+        provenance: 'pob-sim',
+        note:
+          'Path of Building accepts modifier text it understands and silently ignores the rest. A result with no ' +
+          'stat changes usually means the wording was not recognised, not that the modifier is worthless.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_pob_rank_nodes',
+    title: 'Rank passive nodes by measured value',
+    description:
+      'Simulate each candidate passive node in the running Path of Building and rank them by the measured change per ' +
+      'point spent. This is the difference between a suggestion and an answer: poe2_suggest_tree_routes ranks by what ' +
+      'a node’s text says it grants, which cannot know what that is worth on this particular build. Rank by any stat ' +
+      'Path of Building reports — TotalDPS by default, or Life, Armour, EnergyShield and so on. Candidates come ' +
+      'either from explicit node ids, or from a stat to search the tree for. The tree is restored after each node, ' +
+      'and the run stops rather than continue measuring against a build it could not restore.',
+    inputSchema: {
+      nodeIds: z.array(z.number().int()).optional().describe('Node ids to test. Use this or forStat.'),
+      forStat: z
+        .string()
+        .optional()
+        .describe('Find candidates granting this stat, e.g. "chaosResistance". Uses the same search as poe2_suggest_tree_routes.'),
+      metric: z.string().optional().describe('Path of Building stat to rank by. Default TotalDPS.'),
+      maxCandidates: z.number().int().optional().describe('Cap the number simulated. Default 6; each one costs a round trip.'),
+      maxCost: z.number().int().optional().describe('With forStat: the most passive points a candidate may cost to reach. Default 4.'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    handler: async (args) => {
+      const tree = passiveTree()
+      const limit = Math.max(1, Number(args.maxCandidates ?? 6))
+
+      let candidates: { id: number; name?: string }[]
+      if (Array.isArray(args.nodeIds) && args.nodeIds.length) {
+        candidates = (args.nodeIds as number[]).map((id) => ({ id, name: tree.node(id)?.name ?? undefined }))
+      } else if (args.forStat) {
+        const { passives } = requireCharacter().analysis
+        const suggestions = suggestNodesForStat(tree, passives.live, String(args.forStat), {
+          maxCost: Number(args.maxCost ?? 4),
+          limit,
+        })
+        if (!suggestions.length) {
+          throw new Error(
+            `No reachable nodes grant "${args.forStat}" within the cost limit. Try a higher maxCost, or check the ` +
+              'stat name against poe2_suggest_tree_routes.',
+          )
+        }
+        candidates = suggestions.map((s) => ({ id: s.node.id, name: s.node.name }))
+      } else {
+        throw new Error('Provide either nodeIds, or forStat to search the tree for candidates.')
+      }
+
+      const report = await rankNodesByMeasuredGain(pobBridge(), candidates.slice(0, limit), {
+        metric: args.metric ? String(args.metric) : undefined,
+      })
+
+      return {
+        ...report,
+        provenance: 'pob-sim',
+        note:
+          'Measured by Path of Building’s own engine on this build, not estimated. Cost includes any points the ' +
+          'auto-path spent reaching the node.',
+      }
+    },
+  },
+
+  {
     name: 'poe2_explain_mechanic',
     title: 'Explain a PoE2 mechanic',
     description:
@@ -483,10 +892,12 @@ export const TOOLS: ToolDef[] = [
     name: 'poe2_health_check',
     title: 'Check server health',
     description:
-      'Report which data sets are loaded, whether a character is active, and whether poe.ninja is reachable. Use ' +
-      'this to distinguish a configuration problem from a genuinely empty result.',
+      'Report which data sets are loaded, whether a character is active, whether poe.ninja is reachable and whether ' +
+      'a live Path of Building is connected. Use this to distinguish a configuration problem from a genuinely empty ' +
+      'result.',
     inputSchema: {
       checkNetwork: z.boolean().optional().describe('Also probe poe.ninja. Default false.'),
+      checkPob: z.boolean().optional().describe('Also probe the local Path of Building bridge. Default false.'),
     },
     annotations: READ_ONLY_NETWORK,
     handler: async (args) => {
@@ -509,6 +920,14 @@ export const TOOLS: ToolDef[] = [
         }
       }
 
+      let pob: string | null = null
+      if (args.checkPob) {
+        const ping = await pobBridge().ping()
+        pob = ping
+          ? `connected on port ${pobBridge().port}${ping.build_loaded ? `, build "${ping.build_name ?? 'unnamed'}" open` : ', no build open'}`
+          : 'not running, or the addon is not installed'
+      }
+
       return {
         toolCount: TOOLS.length,
         passiveTree: tree,
@@ -516,6 +935,7 @@ export const TOOLS: ToolDef[] = [
           ? { loaded: true, name: loaded.analysis.identity.name, level: loaded.analysis.identity.level, source: loaded.source }
           : { loaded: false },
         poeNinja: network,
+        pathOfBuilding: pob,
       }
     },
   },

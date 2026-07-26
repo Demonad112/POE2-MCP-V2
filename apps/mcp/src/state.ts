@@ -13,15 +13,20 @@ import { fileURLToPath } from 'node:url'
 import {
   analyzeCharacter,
   NinjaClient,
+  ModDatabase,
   PassiveTree,
+  PobBridge,
   indexSupports,
   parseAllSetups,
   type Analysis,
   type CharModel,
+  type ModBaseData,
+  type ModData,
   type PassiveTreeData,
   type SkillSetup,
   type SupportGem,
 } from '@poe2/core'
+import { tcpTransport } from './pob-transport.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 /** dist/ sits one level under apps/mcp, so data is four levels up. */
@@ -47,6 +52,19 @@ export interface LoadedCharacter {
 
 let current: LoadedCharacter | null = null
 let tree: PassiveTree | null = null
+let mods: ModDatabase | null = null
+let pob: PobBridge | null = null
+
+/**
+ * The Path of Building bridge, created once.
+ *
+ * Constructing it opens nothing — the first call does. So this is safe to make
+ * eagerly even when Path of Building is not running, which is the common case.
+ */
+export function pobBridge(): PobBridge {
+  if (!pob) pob = new PobBridge({ transport: tcpTransport })
+  return pob
+}
 
 export const client = new NinjaClient({
   // Server-side, so poe.ninja is reachable directly — no proxy needed. The
@@ -78,4 +96,24 @@ export function passiveTree(): PassiveTree {
     tree = new PassiveTree(data)
   }
   return tree
+}
+
+/**
+ * The mod artifact, read once and kept. 3.6 MB, so it is loaded on first use
+ * rather than at startup — most sessions never touch it.
+ */
+export function modDatabase(): ModDatabase {
+  if (!mods) {
+    const data = JSON.parse(readFileSync(join(dataDir, 'mods.json'), 'utf8')) as ModData
+    // Compatibility comes from a second source (RePoE-fork). Its absence must
+    // degrade to "cannot check", never to a silent pass.
+    let bases: ModBaseData | undefined
+    try {
+      bases = JSON.parse(readFileSync(join(dataDir, 'mod-bases.json'), 'utf8')) as ModBaseData
+    } catch {
+      bases = undefined
+    }
+    mods = new ModDatabase(data, bases)
+  }
+  return mods
 }

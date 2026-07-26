@@ -83,7 +83,7 @@ console.log(`handshake: ${init.result?.serverInfo?.name} v${init.result?.serverI
 const list = await send('tools/list', {})
 const tools = list.result?.tools ?? []
 console.log(`tools/list: ${tools.length} tools`)
-if (tools.length < 14) failures.push(`expected at least 14 tools, got ${tools.length}`)
+if (tools.length < 18) failures.push(`expected at least 14 tools, got ${tools.length}`)
 for (const tool of tools) {
   if (!tool.description || tool.description.length < 40) failures.push(`${tool.name} has a thin description`)
   if (!tool.name.startsWith('poe2_')) failures.push(`${tool.name} is missing the poe2_ prefix`)
@@ -178,6 +178,92 @@ console.log(`recommendations: ${ids.length} findings — ${ids.slice(0, 3).join(
 const mech = await callTool('poe2_explain_mechanic', { query: 'armour' })
 if (!mech.matches?.[0]?.basis) failures.push('mechanic entry lacks a stated basis')
 console.log(`mechanics: "${mech.matches?.[0]?.title}"`)
+
+// --- mod database -----------------------------------------------------------
+const mods = await callTool('poe2_search_mods', { query: 'to Strength', kind: 'SUFFIX', limit: 3 })
+if (mods.results?.[0]?.affix !== 'of the Gods' || !mods.results[0].tier.startsWith('1 of')) {
+  failures.push(`mod search wrong: ${JSON.stringify(mods.results?.[0])}`)
+}
+if (!Array.isArray(mods.results?.[0]?.canAppearOn)) {
+  failures.push(`mod search did not report item-class compatibility: ${JSON.stringify(mods.results?.[0]?.canAppearOn)}`)
+}
+console.log(
+  `mods: "${mods.results?.[0]?.affix}" tier ${mods.results?.[0]?.tier}, on ${mods.results?.[0]?.canAppearOn?.length} classes`,
+)
+
+const itemMods = await callTool('poe2_analyze_item_mods', { slot: 7 })
+if (itemMods.item?.baseType !== 'Militant Bow' || typeof itemMods.matched !== 'number') {
+  failures.push(`item mod analysis wrong: ${JSON.stringify(itemMods.item)}`)
+}
+// The item exists in game, so nothing on it may be reported as illegal.
+if (itemMods.compatibility?.itemClass !== 'Bows') {
+  failures.push(`base class not resolved: ${JSON.stringify(itemMods.compatibility?.itemClass)}`)
+}
+if (itemMods.compatibility?.violations?.length) {
+  failures.push(`real equipped item reported illegal mods: ${JSON.stringify(itemMods.compatibility.violations).slice(0, 200)}`)
+}
+console.log(
+  `item mods: ${itemMods.item?.name} (${itemMods.compatibility?.itemClass}) — ${itemMods.matched} tiered, ${itemMods.compatibility?.violations?.length} illegal`,
+)
+
+// A mod on the wrong class must be caught.
+const wrongClass = await callTool('poe2_analyze_item_mods', {
+  baseType: 'Solar Amulet',
+  mods: ['30% chance to gain an additional Arrow'],
+})
+if (wrongClass.compatibility?.violations?.length) {
+  console.log(`item mods: wrong-class mod rejected — ${wrongClass.compatibility.violations[0].message.slice(0, 90)}`)
+} else if (wrongClass.compatibility?.unknown?.length) {
+  console.log('item mods: that line is unlisted, so reported as unknown rather than a violation')
+} else {
+  failures.push('a bow-only mod on an amulet was neither rejected nor reported unknown')
+}
+
+// --- tree routes ------------------------------------------------------------
+const routes = await callTool('poe2_suggest_tree_routes', { stat: 'chaosResistance', maxCost: 4 })
+if (!routes.routes?.length) {
+  failures.push(`no chaos resistance routes found: ${JSON.stringify(routes).slice(0, 200)}`)
+} else {
+  const first = routes.routes[0]
+  if (first.path.length !== first.cost) failures.push('route path length disagrees with its stated cost')
+  if (!/chaos resistance/i.test(first.grants)) failures.push(`route grants wrong stat: ${first.grants}`)
+  console.log(`routes: "${first.node.name}" for ${first.cost} points — ${first.grants}`)
+}
+
+const badStat = await callTool('poe2_suggest_tree_routes', { stat: 'notAStat' })
+if (!badStat.error?.includes('Supported')) failures.push('unknown stat did not list supported stats')
+
+// --- PoB export with a modified tree ---------------------------------------
+const target = routes.routes?.[0]?.path?.[0]?.id
+if (typeof target === 'number') {
+  const exported = await callTool('poe2_export_pob_with_tree', { allocate: [target] })
+  if (!exported.code || exported.nodeCount?.after !== exported.nodeCount?.before + 1) {
+    failures.push(`pob export wrong: ${JSON.stringify(exported).slice(0, 200)}`)
+  }
+  if (exported.added?.[0]?.id !== target) failures.push('pob export did not report the node it added')
+  console.log(`pob export: added "${exported.added?.[0]?.name}", ${exported.nodeCount?.before} -> ${exported.nodeCount?.after} nodes`)
+}
+
+const emptyEdit = await callTool('poe2_export_pob_with_tree', {})
+if (!emptyEdit.error?.includes('at least one')) failures.push('empty pob edit was not rejected')
+
+// --- Path of Building bridge ------------------------------------------------
+// No Path of Building runs in CI, and that is the point: the interesting
+// assertion is that the bridge degrades into an explanation rather than an
+// exception or — worse — a plausible-looking zero.
+const pob = await callTool('poe2_pob_status')
+if (pob.connected !== false) {
+  failures.push(`pob status claimed a connection with no Path of Building running: ${JSON.stringify(pob).slice(0, 200)}`)
+}
+if (!pob.reason?.includes('MCPConfig')) {
+  failures.push('pob status did not mention the MCPConfig gotcha, which is indistinguishable from PoB being closed')
+}
+
+const sim = await callTool('poe2_pob_simulate_node', { nodeId: 1 })
+if (!sim.error || !/Path of Building/i.test(sim.error)) {
+  failures.push(`pob simulation should fail readably with no PoB running, got: ${JSON.stringify(sim).slice(0, 200)}`)
+}
+console.log('pob bridge: absent PoB reported as unreachable, not as a result')
 
 // --- health -----------------------------------------------------------------
 const health = await callTool('poe2_health_check')
