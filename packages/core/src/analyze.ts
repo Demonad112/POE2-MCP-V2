@@ -12,9 +12,10 @@ import { analyzeDps, type DpsSummary } from './dps/index.js'
 import { indexBreakdowns, type BreakdownIndex } from './model/breakdowns.js'
 import { normalizePassives, type PassiveAllocation } from './model/passives.js'
 import { normalizeItems, type EquippedItem } from './model/slots.js'
-import { recommend } from './recommend/index.js'
+import { gearRecommendations, mergeGearRecommendations, recommend } from './recommend/index.js'
 import type { RecommendationReport } from './recommend/types.js'
 import { reconcile, type ReconciliationReport } from './reconcile/index.js'
+import type { ModTiers } from './gear/tiers.js'
 import { decodePobExport, readPlayerStats } from './pob/export.js'
 import type { CharModel, CharModelResponse } from './model/types.js'
 
@@ -54,7 +55,50 @@ export function unwrapCharModel(input: CharModelResponse | CharModel | unknown):
   return input as CharModel
 }
 
-export async function analyzeCharacter(input: CharModelResponse | CharModel | unknown): Promise<Analysis> {
+/**
+ * Options for the full analysis.
+ *
+ * `tiers` is optional because the affix artifact is 2 MB and neither adapter
+ * wants it loaded unconditionally. Supplied, the recommendations become
+ * concrete — "recraft this suffix on that item into this affix" instead of
+ * "source resistance from gear". Omitted, the original findings stand: vaguer,
+ * never wrong.
+ */
+export interface AnalyzeOptions {
+  tiers?: ModTiers
+}
+
+/**
+ * Findings, made concrete when the affix data is available.
+ *
+ * The gear pass never widens the set on its own — it replaces the engine's
+ * generic entry for a resistance with a specific one about a specific item, and
+ * adds tier upgrades the engine could not see. If the affix data resolves
+ * nothing for this character, the original findings are returned unchanged.
+ */
+function recommendationsFor(model: CharModel, options: AnalyzeOptions): RecommendationReport {
+  const report = recommend(model)
+  if (!options.tiers) return report
+
+  const gear = gearRecommendations({
+    items: normalizeItems(model),
+    defense: analyzeDefense(model),
+    tiers: options.tiers,
+  })
+  if (!gear.length) return report
+
+  const recommendations = mergeGearRecommendations(report.recommendations, gear)
+  return {
+    ...report,
+    recommendations,
+    buildIsSound: recommendations.length === 0,
+  }
+}
+
+export async function analyzeCharacter(
+  input: CharModelResponse | CharModel | unknown,
+  options: AnalyzeOptions = {},
+): Promise<Analysis> {
   const model = unwrapCharModel(input)
   const warnings: string[] = []
 
@@ -83,7 +127,7 @@ export async function analyzeCharacter(input: CharModelResponse | CharModel | un
     passives: normalizePassives(model),
     items: normalizeItems(model),
     breakdowns: indexBreakdowns(model),
-    recommendations: recommend(model),
+    recommendations: recommendationsFor(model, options),
     reconciliation: pobStats ? reconcile(model, pobStats) : null,
     pobStats,
     warnings,

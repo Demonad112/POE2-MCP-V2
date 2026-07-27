@@ -19,6 +19,7 @@ import { normalizeItems, type EquippedItem } from '../model/slots.js'
 import type { Cost, Evidence, Impact, Recommendation, RecommendationReport, Unresolved } from './types.js'
 
 export * from './types.js'
+export * from './gear.js'
 
 /** Relative cost weights used for ranking. Free work is worth doing first. */
 const COST_WEIGHT: Record<Cost['kind'], number> = {
@@ -205,10 +206,21 @@ function oneShotRule(ctx: Context): Recommendation[] {
       id: `one-shot-${lowest.type}`,
       category: 'survivability',
       action: `Shore up ${lowest.type} mitigation — it is this build's one-shot vector at ${d.lowestMaximumHit.toLocaleString()} damage.`,
-      rationale: `${lowest.type[0]!.toUpperCase()}${lowest.type.slice(1)} has the lowest maximum survivable hit of any damage type, ${lowest.ratioToHighest.toFixed(1)}x below the strongest.`,
+      rationale:
+        `${lowest.type[0]!.toUpperCase()}${lowest.type.slice(1)} has the lowest maximum survivable hit of any damage type, ` +
+        `${lowest.ratioToHighest.toFixed(1)}x below the strongest. The figure opposite is the CEILING — what this vector ` +
+        `would reach if it matched the safest one` +
+        (lowest.type === 'chaos'
+          ? ', which chaos cannot fully do here: it drains energy shield at twice the rate, so a capped resistance still leaves it the thinnest vector.'
+          : '.'),
       impact: {
         stat: 'lowestMaximumHitTaken',
-        label: 'Lowest Maximum Hit Taken',
+        // Named a ceiling because that is what it is. `highest.value` is what
+        // this vector would reach if it matched the safest damage type, not a
+        // predicted outcome — and for chaos it is not even attainable, since
+        // chaos drains energy shield at 2x. Presenting a bound as a result is
+        // the same failure as inventing a number.
+        label: 'Lowest maximum hit taken — ceiling if fully closed',
         from: d.lowestMaximumHit,
         to: highest.value,
         delta: highest.value - d.lowestMaximumHit,

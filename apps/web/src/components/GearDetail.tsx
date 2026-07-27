@@ -16,9 +16,8 @@
  * judgement about where that build is heading, and is not made here.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
-  ModTiers,
   analyzeItem,
   findResistanceSwaps,
   findTierUpgrades,
@@ -28,41 +27,9 @@ import {
   type ItemAnalysis,
   type ItemModAnalysis,
   type LocatedMod,
-  type ModTierData,
 } from '@poe2/core'
+import type { ModTiersState } from '@/lib/useModTiers'
 import { Empty, Panel, Tag } from './ui'
-
-const DATA_URL = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/mod-tiers.json`
-
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; tiers: ModTiers }
-  | { status: 'error'; message: string }
-
-function useModTiers(enabled: boolean): LoadState {
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
-
-  useEffect(() => {
-    if (!enabled) return
-    let cancelled = false
-    fetch(DATA_URL)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`the affix data returned ${res.status}`)
-        return (await res.json()) as ModTierData
-      })
-      .then((data) => {
-        if (!cancelled) setState({ status: 'ready', tiers: new ModTiers(data) })
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setState({ status: 'error', message: err.message })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [enabled])
-
-  return state
-}
 
 /** T1 is the best. Colour carries that, but never alone — the label says T1. */
 function tierTone(tier: number | null, of: number | null): string {
@@ -188,12 +155,13 @@ function ItemCard({ item }: { item: ItemAnalysis }) {
 export function GearDetail({
   items,
   defense,
+  state,
 }: {
   items: EquippedItem[]
   defense: DefenseSummary
+  /** Loaded once at page level so this panel and the findings list agree. */
+  state: ModTiersState
 }) {
-  const state = useModTiers(items.length > 0)
-
   const result = useMemo(() => {
     if (state.status !== 'ready') return null
     const active = items.filter((i) => i.active)
@@ -207,7 +175,7 @@ export function GearDetail({
     }
   }, [state, items, defense])
 
-  if (state.status === 'loading') {
+  if (state.status === 'idle' || state.status === 'loading') {
     return (
       <Panel title="Gear modifiers" subtitle="Loading the affix data…">
         <div className="h-24 animate-pulse rounded-lg bg-surface-sunken" />

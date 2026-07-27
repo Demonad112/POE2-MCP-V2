@@ -25,7 +25,7 @@ Verification against a live instance is
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 206 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 216 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
 | `apps/mcp` | 27-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
@@ -60,7 +60,7 @@ difference between "tanky" and "dies to one slam".
 
 ```bash
 npm install
-npm test          # 206 tests against a real captured character
+npm test          # 216 tests against a real captured character
 npm run build     # core -> dist, then the web static export
 npm run dev       # web app at http://localhost:3000
 ```

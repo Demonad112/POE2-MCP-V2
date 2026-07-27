@@ -76,6 +76,26 @@ try {
 
   await gearPanel.screenshot({ path: join(outDir, 'gear-modifiers.png') })
 
+  // --- the findings list must become concrete once the affix data lands ------
+  // It renders before the 2 MB artifact arrives, so the enrichment is a second
+  // pass. If it never happened, the reader is left with "source resistance from
+  // gear" while the panel below names the exact item.
+  const findings = page.locator('section', { has: page.getByRole('heading', { name: /recommend|finding/i }) })
+  if (await findings.count()) {
+    await findings.first().scrollIntoViewIfNeeded()
+    const fText = await findings.first().innerText()
+    if (!/Hypnotic Halo|of Bameth/.test(fText)) {
+      failures.push(`findings did not become concrete after the affix data loaded: ${fText.slice(0, 200)}`)
+    }
+    if (/Raise chaos resistance by 57% to reach/.test(fText)) {
+      failures.push('the vague chaos finding survived alongside the specific one')
+    }
+    await findings.first().screenshot({ path: join(outDir, 'findings-enriched.png') })
+    console.log('findings: named the item and affix after the affix data loaded')
+  } else {
+    failures.push('the recommendations panel did not render')
+  }
+
   // --- resistance swaps -----------------------------------------------------
   const swapPanel = page.locator('section', { has: page.getByRole('heading', { name: 'Resistance rebalancing' }) })
   if (await swapPanel.count()) {

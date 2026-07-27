@@ -169,10 +169,35 @@ console.log(`cross-validate: ${cross.summary?.agree} agree, ${cross.summary?.maj
 // --- recommendations --------------------------------------------------------
 const recs = await callTool('poe2_get_recommendations')
 const ids = (recs.recommendations ?? []).map((r) => r.id)
-for (const expected of ['res-cold-under-cap', 'one-shot-chaos', 'anoint-unused', 'weapon-ilvl-lag']) {
+for (const expected of ['one-shot-chaos', 'anoint-unused', 'weapon-ilvl-lag']) {
   if (!ids.includes(expected)) failures.push(`recommendations missing ${expected}`)
 }
+
+// The affix data is loaded server-side, so the vague resistance findings must
+// have been replaced by specific ones naming the item and the affix.
+if (ids.includes('res-chaos-under-cap') || ids.includes('res-cold-under-cap')) {
+  failures.push('a generic resistance finding survived alongside the gear data that supersedes it')
+}
+const chaosSwap = (recs.recommendations ?? []).find((r) => r.id === 'gear-swap-chaos')
+if (!chaosSwap) {
+  failures.push('no concrete chaos gear swap was produced')
+} else {
+  if (!/Hypnotic Halo/.test(chaosSwap.action)) failures.push(`swap does not name the item: ${chaosSwap.action}`)
+  if (!/of Bameth/.test(chaosSwap.action)) failures.push(`swap does not name the affix: ${chaosSwap.action}`)
+  if (chaosSwap.impact?.to > 75) failures.push('swap claims to push a resistance past its cap')
+  // The chaos gap is 57 points; the cold gap is 1. Closing more must rank higher.
+  const coldSwap = (recs.recommendations ?? []).find((r) => r.id === 'gear-swap-cold')
+  if (coldSwap && coldSwap.score >= chaosSwap.score) {
+    failures.push('a 1-point cold fix outranks a 27-point chaos fix')
+  }
+}
+// A tier gap means a mod COULD be bigger, not that bigger helps. Ranking them
+// produced "improve armour +208" beside "armour is a non-defence at 207".
+if (ids.some((id) => id.startsWith('gear-tier-'))) {
+  failures.push('tier upgrades are being ranked as recommendations')
+}
 console.log(`recommendations: ${ids.length} findings — ${ids.slice(0, 3).join(', ')}…`)
+console.log(`  concrete swap: ${chaosSwap?.action?.slice(0, 96)}…`)
 
 // --- mechanics --------------------------------------------------------------
 const mech = await callTool('poe2_explain_mechanic', { query: 'armour' })

@@ -101,7 +101,17 @@ export const client = new NinjaClient({
 })
 
 export async function loadCharacter(raw: unknown, source: string): Promise<LoadedCharacter> {
-  const analysis = await analyzeCharacter(raw)
+  // Pass the affix ladders in so recommendations name the actual item and affix
+  // rather than saying "source resistance from gear". The artifact is local, so
+  // there is no reason not to. If it cannot be read, the analysis still works —
+  // the findings are just vaguer.
+  let tiers: ModTiers | undefined
+  try {
+    tiers = modTiers()
+  } catch {
+    tiers = undefined
+  }
+  const analysis = await analyzeCharacter(raw, { tiers })
   const model = (raw as { charModel?: CharModel }).charModel ?? (raw as CharModel)
   const setups = parseAllSetups(model.skills)
   current = { model, analysis, setups, supports: indexSupports(setups), source }
