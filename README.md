@@ -25,7 +25,7 @@ Verification against a live instance is
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 180 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 206 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
 | `apps/mcp` | 27-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
@@ -60,7 +60,7 @@ difference between "tanky" and "dies to one slam".
 
 ```bash
 npm install
-npm test          # 180 tests against a real captured character
+npm test          # 206 tests against a real captured character
 npm run build     # core -> dist, then the web static export
 npm run dev       # web app at http://localhost:3000
 ```
@@ -91,6 +91,7 @@ packages/core/           pure analysis — the single source of truth
   dps/                   Tier 1 reader over skills[].dps[0]
   pob/                   export decode, PlayerStat reader, live bridge
   gear/                  affix ladders per item class, waste and swaps
+  chat/                  grounded context + provider-agnostic transport
   gems/                  support gem parsing and validation
   tree/                  passive graph, path finding, allocation
   recommend/             ranked, quantified findings
@@ -115,8 +116,13 @@ different tool counts across its docs because that list was hand-maintained.
 - **Tier 2 (simulation)** — drive a live Path of Building instance for what-ifs:
   apply a change, read what its engine makes of it, put it back. Measured, not
   estimated. Requires PoB running locally with the MCP Bridge addon.
-- **Tier 3 (fallback)** — internal estimation, **always** labelled `estimate` and
-  never silently mixed with Tier 1.
+- **Tier 3 (estimation)** — **deliberately not built.** It had no trigger. The
+  poe.ninja path resolves every damaging skill (`dps.unresolved` is null on the
+  reference character), and a Path of Building code carries 106 computed
+  `PlayerStat` values including `TotalDPS`. The real gap was that codes were
+  being *rejected*, on the false claim that they carry no computed stats. They
+  are now a first-class import. Building an estimator to fill a gap that does not
+  exist would mean inventing numbers in a project whose first rule is not to.
 
 Every number carries a `provenance` field through to the UI.
 
@@ -159,6 +165,39 @@ all enemies).
 The figure is against a **base** monster. Rare and unique multipliers and map
 modifiers are not in the data, so it is an upper bound, never a verdict that a
 tier is safe — and it says so next to the number rather than below the fold.
+
+### Two import routes, both carrying real numbers
+
+A **poe.ninja URL or payload** gives the full picture: per-skill damage, stat
+attribution, gear modifier tiers.
+
+A **Path of Building code** gives fewer panels and every figure in them is Path
+of Building's own — all five maximum-hit-taken values, every resistance, life,
+energy shield, armour, evasion, `TotalDPS`. On the reference character both
+routes agree exactly: 3,808 chaos and 109,859 DPS. What a code cannot answer is
+listed explicitly, so a missing panel is never mistaken for a missing stat.
+
+### Optional chat, and where the key lives
+
+Off by default. When enabled, the model is handed the figures this project
+derived and instructed to answer only from them, naming what is missing rather
+than estimating. Replies are labelled model-generated; the panels remain the
+authority.
+
+**The key lives in your browser, never in this repository.** This is a static
+export with no server, and Next inlines every `NEXT_PUBLIC_*` value into the
+published bundle — so a key in repository secrets would be readable by anyone who
+opened devtools. A serverless proxy holding the key server-side is supported as
+an alternative. There is deliberately no arrangement where a maintainer's key
+ships with the site.
+
+### Offline
+
+A service worker caches the data artifacts (tree, affix ladders, monster stats)
+cache-first, since they are immutable per deploy, and the app shell
+network-first so it never goes stale. Character requests are **never** cached: a
+stale character sheet served as current is exactly the kind of quietly wrong
+answer this project avoids.
 
 ## Correctness rules
 
