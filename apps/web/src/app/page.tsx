@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { analyzeCharacter, analyzeFromPob, type Analysis, type PobAnalysis } from '@poe2/core'
 import { DefensePanel } from '@/components/DefensePanel'
 import { DpsMatrix } from '@/components/DpsMatrix'
@@ -15,6 +15,7 @@ import { Recommendations } from '@/components/Recommendations'
 import { Skeleton } from '@/components/Skeleton'
 import { TreePanel } from '@/components/tree/TreePanel'
 import { Tag } from '@/components/ui'
+import { useModTiers } from '@/lib/useModTiers'
 
 /**
  * Stats the analysis found the build short on, worst first.
@@ -50,8 +51,27 @@ export default function Home() {
   // them estimated — so it is kept as its own shape rather than pretending to
   // be a full poe.ninja analysis with holes in it.
   const [pobAnalysis, setPobAnalysis] = useState<PobAnalysis | null>(null)
+  // One fetch for the whole page. The gear panel and the findings list must
+  // agree about what is wasted and what would fix it, and two fetches of the
+  // same artifact into two components is how that drifts.
+  const tiersState = useModTiers(analysis !== null)
+  // Kept so the analysis can be re-derived once the affix data lands: "source
+  // resistance from gear" becomes "recraft this suffix on that item into this
+  // affix". Re-running is cheap — it is pure computation over parsed data.
+  const [raw, setRaw] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (tiersState.status !== 'ready' || !raw) return
+    let cancelled = false
+    void analyzeCharacter(raw, { tiers: tiersState.tiers }).then((next) => {
+      if (!cancelled) setAnalysis(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tiersState, raw])
 
   const handleResult = useCallback(async (r: ImportResult) => {
     if (!r.ok) {
@@ -63,9 +83,11 @@ export default function Home() {
     try {
       if (r.kind === 'pob') {
         setAnalysis(null)
+        setRaw(null)
         setPobAnalysis(await analyzeFromPob(r.code))
       } else {
         setPobAnalysis(null)
+        setRaw(r.data)
         setAnalysis(await analyzeCharacter(r.data))
       }
     } catch (err) {
@@ -142,7 +164,7 @@ export default function Home() {
 
             <DpsMatrix dps={analysis.dps} />
 
-            <GearDetail items={analysis.items} defense={analysis.defense} />
+            <GearDetail items={analysis.items} defense={analysis.defense} state={tiersState} />
 
             <TreePanel allocation={analysis.passives} weakStats={weakStatsFrom(analysis)} />
 
