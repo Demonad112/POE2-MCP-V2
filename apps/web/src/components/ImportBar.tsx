@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { NinjaClient, NinjaError, parseProfileUrl } from '@poe2/core'
+import { NinjaClient, NinjaError, looksLikePobCode, parseProfileUrl } from '@poe2/core'
 
 /**
  * poe.ninja sends no CORS headers, so the browser cannot call it directly and a
@@ -21,7 +21,11 @@ const PROXY_BASE = (process.env.NEXT_PUBLIC_NINJA_PROXY_BASE || DEFAULT_PROXY).r
 
 const EXAMPLE = 'https://poe.ninja/poe2/profile/Demonad112-2589/runesofaldur/character/Athrynas'
 
-export type ImportResult = { ok: true; data: unknown } | { ok: false; error: string; canPaste: boolean }
+export type ImportResult =
+  | { ok: true; kind: 'ninja'; data: unknown }
+  /** A Path of Building export code. Fewer stats, all of them real. */
+  | { ok: true; kind: 'pob'; code: string }
+  | { ok: false; error: string; canPaste: boolean }
 
 export function ImportBar({
   onResult,
@@ -54,7 +58,7 @@ export function ImportBar({
     try {
       const client = new NinjaClient({ fetch: (i, init) => fetch(i, init), proxyBaseUrl: PROXY_BASE })
       const data = await client.fetchCharacter(ref.account, ref.leagueSlug, ref.character)
-      onResult({ ok: true, data })
+      onResult({ ok: true, kind: 'ninja', data })
     } catch (err) {
       const message =
         err instanceof NinjaError
@@ -75,11 +79,20 @@ export function ImportBar({
       setError('Paste a character model JSON or a Path of Building export code.')
       return
     }
+    // A Path of Building code is a second real source, not a lesser one: it
+    // carries 106 computed PlayerStat values including every maximum-hit-taken
+    // figure. This used to be rejected on the false claim that it carried none.
+    if (looksLikePobCode(text)) {
+      onResult({ ok: true, kind: 'pob', code: text })
+      return
+    }
+
     try {
-      onResult({ ok: true, data: JSON.parse(text) })
+      onResult({ ok: true, kind: 'ninja', data: JSON.parse(text) })
     } catch {
       setError(
-        'That is not valid JSON. Paste the full response from poe.ninja’s character model endpoint — a Path of Building code alone does not carry the computed stats this tool reads.',
+        'That is neither valid JSON nor a Path of Building export code. Paste either the full response from ' +
+          'poe.ninja’s character model endpoint, or a Path of Building code copied with its Share button.',
       )
     }
   }
@@ -135,8 +148,8 @@ export function ImportBar({
             value={paste}
             onChange={(e) => setPaste(e.target.value)}
             rows={4}
-            placeholder='Paste the character model JSON, e.g. {"type":"found","charModel":{…}}'
-            aria-label="Character model JSON"
+            placeholder='Paste a character model JSON, or a Path of Building export code'
+            aria-label="Character model JSON or Path of Building code"
             className="w-full resize-y rounded-lg border border-line bg-surface px-3 py-2.5 font-mono text-xs text-ink placeholder:text-ink-mute"
           />
           <button

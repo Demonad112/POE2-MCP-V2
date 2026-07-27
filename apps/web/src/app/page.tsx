@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { analyzeCharacter, type Analysis } from '@poe2/core'
+import { analyzeCharacter, analyzeFromPob, type Analysis, type PobAnalysis } from '@poe2/core'
 import { DefensePanel } from '@/components/DefensePanel'
 import { DpsMatrix } from '@/components/DpsMatrix'
 import { GearDetail } from '@/components/GearDetail'
 import { GearPanel } from '@/components/GearPanel'
 import { Headroom } from '@/components/Headroom'
+import { Chat } from '@/components/Chat'
+import { PobAnalysisView } from '@/components/PobAnalysisView'
 import { ImportBar, type ImportResult } from '@/components/ImportBar'
 import { Reconciliation } from '@/components/Reconciliation'
 import { Recommendations } from '@/components/Recommendations'
@@ -44,6 +46,10 @@ function weakStatsFrom(analysis: Analysis) {
 
 export default function Home() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
+  // A Path of Building code yields fewer panels — every figure real, none of
+  // them estimated — so it is kept as its own shape rather than pretending to
+  // be a full poe.ninja analysis with holes in it.
+  const [pobAnalysis, setPobAnalysis] = useState<PobAnalysis | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,7 +61,13 @@ export default function Home() {
     setError(null)
     setBusy(true)
     try {
-      setAnalysis(await analyzeCharacter(r.data))
+      if (r.kind === 'pob') {
+        setAnalysis(null)
+        setPobAnalysis(await analyzeFromPob(r.code))
+      } else {
+        setPobAnalysis(null)
+        setAnalysis(await analyzeCharacter(r.data))
+      }
     } catch (err) {
       setError(`Could not analyse that data: ${(err as Error).message}`)
       setAnalysis(null)
@@ -86,13 +98,20 @@ export default function Home() {
       <main id="main" className="mt-6">
         {busy ? <Skeleton /> : null}
 
-        {!busy && !analysis ? (
+        {!busy && !analysis && !pobAnalysis ? (
           <div className="rounded-xl border border-dashed border-line px-6 py-14 text-center">
             <p className="text-sm text-ink-dim">Import a character to see its analysis.</p>
             <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-ink-mute">
               Survivability is led by the smallest hit that kills, not by an averaged effective health pool — which on
               a typical character overstates safety by three times or more.
             </p>
+          </div>
+        ) : null}
+
+        {!busy && pobAnalysis ? (
+          <div className="space-y-4">
+            <PobAnalysisView analysis={pobAnalysis} />
+            <Chat pob={pobAnalysis} />
           </div>
         ) : null}
 
@@ -128,6 +147,8 @@ export default function Home() {
             <TreePanel allocation={analysis.passives} weakStats={weakStatsFrom(analysis)} />
 
             {analysis.reconciliation ? <Reconciliation report={analysis.reconciliation} /> : null}
+
+            <Chat analysis={analysis} />
           </div>
         ) : null}
       </main>
