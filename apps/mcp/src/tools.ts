@@ -15,6 +15,7 @@ import {
   NODE_KIND,
   analyzeContent,
   analyzeItem,
+  auditCharacter,
   decodePobExport,
   editPobTree,
   findMechanicSafe,
@@ -768,6 +769,45 @@ export const TOOLS: ToolDef[] = [
         note:
           'Only measurable waste is reported. Resistance above the cap is provably doing nothing; whether a damage ' +
           'modifier suits a build depends on where that build is heading, which is not judged here.',
+      }
+    },
+  },
+
+  {
+    name: 'poe2_audit_character',
+    title: 'Audit the things nothing else checks',
+    description:
+      'Five checks over parts of the character payload the other tools never read. Socketed jewels, tiered against ' +
+      'jewel spawn rules rather than gear ones. Empty rune sockets, which are free stats not taken. Levelled skill ' +
+      'gems below the 20% quality cap, flagged most confidently where another copy of the same gem IS at higher ' +
+      'quality. How close each attribute sits to what the gear requires — a small margin means losing one source ' +
+      'unequips something. And how much spirit is reserved versus idle. Nothing here is estimated; anything needing ' +
+      'the Path of Building export says so when it is absent rather than reporting zero.',
+    inputSchema: {},
+    annotations: READ_ONLY,
+    handler: () => {
+      const { model, analysis } = requireCharacter()
+      let tiers: ReturnType<typeof modTiers> | null = null
+      try {
+        tiers = modTiers()
+      } catch {
+        tiers = null
+      }
+      const report = auditCharacter(model, tiers, analysis.pobStats)
+      return {
+        ...report,
+        summary: {
+          jewels: report.jewels.length,
+          jewelMods: report.jewels.reduce((n, j) => n + j.mods.length, 0),
+          emptySockets: report.emptySockets.reduce((n, s) => n + s.empty, 0),
+          gemsBelowMaxQuality: report.gemQuality.length,
+          tightAttributes: report.attributes.filter((a) => a.tight).map((a) => a.attribute),
+          spiritIdle: report.spirit ? `${report.spirit.unreserved} of ${report.spirit.total}` : null,
+        },
+        note:
+          'An empty socket and a sub-maximum gem quality are unambiguous improvements. Idle spirit and spare ' +
+          'attributes are reported without judgement — whether they are worth spending depends on where the build ' +
+          'is heading, which is not decided here.',
       }
     },
   },

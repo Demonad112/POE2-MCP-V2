@@ -7,6 +7,7 @@ import { DpsMatrix } from '@/components/DpsMatrix'
 import { GearDetail } from '@/components/GearDetail'
 import { GearPanel } from '@/components/GearPanel'
 import { Headroom } from '@/components/Headroom'
+import { AuditPanel } from '@/components/AuditPanel'
 import { Chat } from '@/components/Chat'
 import { PobAnalysisView } from '@/components/PobAnalysisView'
 import { ImportBar, type ImportResult } from '@/components/ImportBar'
@@ -167,6 +168,8 @@ export default function Home() {
             <GearDetail items={analysis.items} defense={analysis.defense} state={tiersState} />
 
             <TreePanel allocation={analysis.passives} weakStats={weakStatsFrom(analysis)} />
+
+            <AuditPanel model={analysis.model} pobStats={analysis.pobStats} state={tiersState} />
 
             {analysis.reconciliation ? <Reconciliation report={analysis.reconciliation} /> : null}
 

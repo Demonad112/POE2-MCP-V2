@@ -7,4 +7,5 @@
 
 export * from './tiers.js'
 export * from './analyze.js'
+export * from './audit.js'
 export * from './content.js'

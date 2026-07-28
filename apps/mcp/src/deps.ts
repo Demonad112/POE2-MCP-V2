@@ -9,6 +9,7 @@ export {
   NODE_KIND,
   analyzeContent,
   analyzeItem,
+  auditCharacter,
   PobBridge,
   PobBridgeError,
   decodePobExport,

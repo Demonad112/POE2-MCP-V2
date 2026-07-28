@@ -14,7 +14,7 @@ Two rules shape everything here:
 ## Status
 
 Analysis core, web app with a visual passive tree and per-item modifier
-analysis, and a 27-tool MCP server are all shipped, including the Path of
+analysis, and a 28-tool MCP server are all shipped, including the Path of
 Building bridge for what-if simulation.
 
 The bridge is the one part **not verified end to end**. Its protocol is tested
@@ -25,9 +25,9 @@ Verification against a live instance is
 
 | | |
 |---|---|
-| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 216 tests. |
+| `packages/core` | Pure analysis. No I/O, no framework — `fetch` is injected. 235 tests. |
 | `apps/web` | Static Next.js app on GitHub Pages, including the passive tree render. |
-| `apps/mcp` | 27-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
+| `apps/mcp` | 28-tool MCP server over stdio. See [TOOLS.md](apps/mcp/TOOLS.md). |
 | `packages/data` | Versioned game data and re-runnable extraction scripts. |
 | `services/ninja-proxy` | One serverless function. Needed because poe.ninja sends no CORS headers. |
 
@@ -60,7 +60,7 @@ difference between "tanky" and "dies to one slam".
 
 ```bash
 npm install
-npm test          # 216 tests against a real captured character
+npm test          # 235 tests against a real captured character
 npm run build     # core -> dist, then the web static export
 npm run dev       # web app at http://localhost:3000
 ```
@@ -198,6 +198,30 @@ cache-first, since they are immutable per deploy, and the app shell
 network-first so it never goes stale. Character requests are **never** cached: a
 stale character sheet served as current is exactly the kind of quietly wrong
 answer this project avoids.
+
+### Detail checks
+
+Five things the main panels don't read, each derived rather than estimated:
+
+- **Socketed jewels**, tiered against jewel spawn rules. Jewel affixes are
+  RePoE's `misc` domain with tags like `dexjewel`; filtering the artifact to
+  `item` left three jewels and twelve modifiers invisible.
+- **Empty rune sockets** — free stats not taken, and one of the few findings
+  here that is an improvement regardless of build direction.
+- **Levelled gems below the 20% quality cap.** Support gems report level 0 and
+  quality 0 by convention and are ignored; flagging them would mark every
+  support on every character. Strongest signal is when another copy of the same
+  gem *is* at higher quality.
+- **Attribute headroom** — how close each attribute sits to what the gear
+  requires. On the reference character strength is 47 against 45, so losing one
+  source unequips something. Excess is *not* called waste: dexterity grants
+  accuracy and evasion, so that would be a judgement about build direction.
+- **Spirit reservation.** Reported as a number without a verdict — whether idle
+  spirit is a problem depends on whether a buff worth running fits in it.
+
+The last two need the Path of Building export for the requirement and reserved
+figures; poe.ninja reports the totals but neither counterpart. Absent it, they
+say so rather than reporting zero.
 
 ## Correctness rules
 
