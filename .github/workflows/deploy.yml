@@ -32,7 +32,18 @@ jobs:
         run: npm run build --workspace @poe2/web
       - name: Disable Jekyll processing
         run: touch apps/web/out/.nojekyll
+      # enablement: true creates the Pages site through the API when it is not
+      # already configured. Added after a deploy failed with "Get Pages site
+      # failed ... verify that the repository has Pages enabled", which took the
+      # live site down even though the build itself succeeded. The workflow
+      # already holds `pages: write`, which is what this needs.
+      #
+      # If this still fails, Pages is disabled at a level a workflow cannot
+      # reach and it must be turned on in Settings -> Pages, source
+      # "GitHub Actions".
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/out
