@@ -31,6 +31,14 @@ export interface CharacterIdentity {
 
 export interface Analysis {
   identity: CharacterIdentity
+  /**
+   * The unwrapped character model.
+   *
+   * Carried so consumers reading parts of the payload this summary does not
+   * cover — jewels, sockets, gem quality — need not re-unwrap the envelope and
+   * risk disagreeing with the analysis about which model they are looking at.
+   */
+  model: CharModel
   defense: DefenseSummary
   dps: DpsSummary
   passives: PassiveAllocation
@@ -127,6 +135,7 @@ export async function analyzeCharacter(
     passives: normalizePassives(model),
     items: normalizeItems(model),
     breakdowns: indexBreakdowns(model),
+    model,
     recommendations: recommendationsFor(model, options),
     reconciliation: pobStats ? reconcile(model, pobStats) : null,
     pobStats,

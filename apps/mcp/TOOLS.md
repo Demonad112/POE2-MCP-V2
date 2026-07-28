@@ -5,7 +5,7 @@
 
 # Tools
 
-27 tools. 23 are read-only; 4 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`, `poe2_pob_rank_nodes`). Nothing here ever writes to a game account, a file, or poe.ninja.
+28 tools. 24 are read-only; 4 marked ⚠️ act on a running Path of Building on this machine (`poe2_pob_load_character`, `poe2_pob_simulate_node`, `poe2_pob_simulate_mods`, `poe2_pob_rank_nodes`). Nothing here ever writes to a game account, a file, or poe.ninja.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -28,6 +28,7 @@
 | `poe2_export_pob_with_tree` | Apply passive tree changes to the loaded character’s Path of Building export and return a new code, ready to paste into Path of Building. | `allocate`, `deallocate`, `replace` |
 | `poe2_analyze_gear` | Every modifier on every equipped item, with its affix tier, the roll inside that tier’s range, and what better tiers exist. | `slot`, `includeInactive` |
 | `poe2_find_gear_improvements` | Two kinds of concrete gear change, both grounded in the affix data rather than opinion. | `limit` |
+| `poe2_audit_character` | Five checks over parts of the character payload the other tools never read. | — |
 | `poe2_survivability_headroom` | How the character’s smallest fatal hit compares to base monster damage at every waystone tier (1-16) and at the boss levels Path of Building itself uses — 82, the pinnacle boss floor, and 85, the ceiling for all enemies. | — |
 | `poe2_pob_status` | Report whether a live Path of Building instance is reachable, which build it has open, and what its engine currently computes. | `includeCalcs` |
 | `poe2_pob_load_character` ⚠️ | Push the loaded character’s Path of Building export into the running Path of Building instance, so its engine can be used for simulation. | `allocate`, `deallocate` |
@@ -211,6 +212,14 @@ Every modifier on every equipped item, with its affix tier, the roll inside that
 Two kinds of concrete gear change, both grounded in the affix data rather than opinion. First, resistance rebalancing: modifiers granting resistance the character is already over cap on are provably wasted, and this names the item, the modifier, and the specific affixes that could replace it to cover what is short — ranked by how much of the gap each closes. Second, tier upgrades: modifiers sitting below the best tier their item could hold. Corrupted items are excluded from recrafting advice because their affixes cannot change.
 
 - `limit` *(optional)* — Cap each list. Default 8.
+
+### `poe2_audit_character`
+
+**Audit the things nothing else checks**
+
+Five checks over parts of the character payload the other tools never read. Socketed jewels, tiered against jewel spawn rules rather than gear ones. Empty rune sockets, which are free stats not taken. Levelled skill gems below the 20% quality cap, flagged most confidently where another copy of the same gem IS at higher quality. How close each attribute sits to what the gear requires — a small margin means losing one source unequips something. And how much spirit is reserved versus idle. Nothing here is estimated; anything needing the Path of Building export says so when it is absent rather than reporting zero.
+
+_No parameters._
 
 ### `poe2_survivability_headroom`
 

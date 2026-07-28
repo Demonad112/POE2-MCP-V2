@@ -24,6 +24,15 @@
  * passive-node bug mattered: a mod that buffs your allies is not a mod that
  * buffs you. pob-data's group wins when present.
  *
+ * ## Jewels live in the `misc` domain
+ *
+ * Jewel affixes are not domain `item` — they are `misc`, with spawn tags like
+ * `dexjewel` that match the jewel base's own tags (an Emerald carries
+ * ["jewel","dexjewel","default"]). Filtering to domain `item` alone left every
+ * jewel modifier unresolvable, which is why three socketed jewels carrying
+ * twelve real modifiers were invisible to the analysis. Both domains are kept,
+ * and the per-class ladder logic works unchanged because the join is on tags.
+ *
  * ## Tiers are per item class, not global
  *
  * `ColdResistance` has 16 members across the game, but only 8 can appear on a
@@ -113,8 +122,11 @@ let skippedNoGroup = 0
 const DISPLAY_ONLY = new Set(['unique', 'corrupted'])
 const displayOnly = {}
 
+/** `item` covers gear; `misc` is where jewel affixes live. */
+const KEPT_DOMAINS = new Set(['item', 'misc'])
+
 for (const [id, mod] of Object.entries(mods)) {
-  if (mod.domain !== 'item') {
+  if (!KEPT_DOMAINS.has(mod.domain)) {
     skippedDomain++
     continue
   }
@@ -182,7 +194,9 @@ console.log(`source mods        ${Object.keys(mods).length}`)
 console.log(`  wrong domain     ${skippedDomain} (not a craftable item prefix/suffix)`)
 console.log(`  essence only     ${skippedEssence} (not reachable by normal crafting)`)
 console.log(`  no group         ${skippedNoGroup}`)
+const jewelMods = Object.entries(out).filter(([id]) => mods[id]?.domain === 'misc').length
 console.log(`kept               ${Object.keys(out).length} across ${groups.size} ladders`)
+console.log(`  of which jewel   ${jewelMods} (domain misc — these were previously dropped entirely)`)
 console.log(`display-only mods  ${Object.keys(displayOnly).length} (implicits, corrupted, unique — never tiered)`)
 console.log(`bases              ${Object.keys(baseTags).length} names with spawn tags`)
 console.log(

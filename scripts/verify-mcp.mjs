@@ -332,6 +332,44 @@ console.log(
     `${t16?.headroom}x at T16, ${headroom.bosses?.find((b) => b.level === 85)?.headroom}x vs a level-85 boss`,
 )
 
+// --- audit ------------------------------------------------------------------
+const audit = await callTool('poe2_audit_character')
+
+// Jewel affixes are RePoE domain `misc`; filtering to `item` left all three
+// jewels and their twelve modifiers invisible.
+if (audit.jewels?.length !== 3) failures.push(`expected 3 jewels, got ${audit.jewels?.length}`)
+const jewelMods = (audit.jewels ?? []).flatMap((j) => j.mods ?? [])
+if (jewelMods.some((m) => m.tier === null)) {
+  failures.push('a jewel modifier failed to resolve a tier')
+}
+if (jewelMods.some((m) => m.text === m.id)) failures.push('a jewel modifier rendered as its raw mod id')
+
+// Two points of strength headroom: losing one source unequips something.
+const str = (audit.attributes ?? []).find((a) => a.attribute === 'strength')
+if (str?.have !== 47 || str?.required !== 45 || str?.tight !== true) {
+  failures.push(`strength headroom wrong: ${JSON.stringify(str)}`)
+}
+if (audit.attributes?.[0]?.attribute !== 'strength') {
+  failures.push('the tightest attribute is not reported first')
+}
+
+if (audit.spirit?.total !== 159 || audit.spirit?.unreserved !== 79) {
+  failures.push(`spirit wrong: ${JSON.stringify(audit.spirit)}`)
+}
+
+// Support gems report level 0 / quality 0 by convention; flagging them would
+// mark every support on every character.
+const flaggedSupports = (audit.gemQuality ?? []).filter((g) => /Rapid Attacks|Deliberation|Longshot/.test(g.gem))
+if (flaggedSupports.length) failures.push(`support gems wrongly flagged as unqualited: ${flaggedSupports.length}`)
+if ((audit.gemQuality ?? []).some((g) => /unknown/i.test(g.skill))) {
+  failures.push('a gem is attributed to an "unknown skill"')
+}
+console.log(
+  `audit: ${audit.summary?.jewels} jewels (${audit.summary?.jewelMods} mods), ` +
+    `${audit.summary?.gemsBelowMaxQuality} gems under 20% quality, ` +
+    `strength headroom ${str?.headroom}, spirit idle ${audit.summary?.spiritIdle}`,
+)
+
 // --- Path of Building bridge ------------------------------------------------
 // No Path of Building runs in CI, and that is the point: the interesting
 // assertion is that the bridge degrades into an explanation rather than an

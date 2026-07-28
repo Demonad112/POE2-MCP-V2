@@ -127,6 +127,30 @@ try {
   await headroom.screenshot({ path: join(outDir, 'headroom.png') })
   console.log('headroom panel: tiers, boss levels and caveats all rendered')
 
+  // --- the detail checks ----------------------------------------------------
+  const audit = page.locator('section', { has: page.getByRole('heading', { name: 'Detail checks' }) })
+  await audit.waitFor({ timeout: 15000 })
+  await audit.scrollIntoViewIfNeeded()
+  const aText = await audit.innerText()
+
+  // Jewel affixes are RePoE domain `misc`; filtering to `item` left all three
+  // jewels invisible, so their presence IS the regression test.
+  if (!/Eagle Scar|Glyph Eye|Rapture Bloom/.test(aText)) failures.push('jewels did not render')
+  if (!/increased Damage with Bows/.test(aText)) failures.push('jewel modifier text did not resolve')
+  if (/Jewel[A-Z]/.test(aText)) failures.push('a jewel modifier rendered as its raw mod id')
+
+  if (!/Another copy of this gem is at 20%/.test(aText)) {
+    failures.push('gem quality check did not point at the higher-quality copy')
+  }
+  if (!/47 against 45 required/.test(aText)) failures.push('attribute headroom did not render the real numbers')
+  if (!/unequippable/.test(aText)) failures.push('a 2-point strength margin was not flagged as tight')
+  if (!/80 reserved of 159/.test(aText)) failures.push('spirit reservation did not render')
+  // Idle spirit is a number, not a verdict.
+  if (!/this is a number, not a verdict/.test(aText)) failures.push('idle spirit is presented without its caveat')
+
+  await audit.screenshot({ path: join(outDir, 'audit.png') })
+  console.log('detail checks: jewels, gem quality, attribute headroom and spirit all rendered')
+
   // --- no horizontal overflow at mobile width -------------------------------
   await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForTimeout(300)
